@@ -78,4 +78,5 @@ xlsxwriter>=3.1.0
 # collections, itertools, functools, copy, pickle, gzip, zipfile, shutil
 # tempfile, io, csv, xml, html, http, socket, ssl, subprocess, signal
 # inspect, ast, enum, math, decimal, array, queue, contextlib, warnings
-# typing, dataclasses, weakref, gc, platform, stat, glob, fnmatch
+# typing, dataclasses, weakref, gc, platform, stat, glob, fnmatch, mimetypes
+# email, smtplib, imaplib, poplib, ftplib, telnetlib, configparser, argparse

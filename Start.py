@@ -6,12 +6,22 @@
 """
 
 import os
+import sys
 import asyncio
 import threading
 import uvicorn
 from urllib.parse import urlparse
 from pathlib import Path
 from loguru import logger
+
+# 修复Linux环境下的asyncio子进程问题
+if sys.platform.startswith('linux'):
+    try:
+        # 在程序启动时就设置正确的事件循环策略
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        logger.debug("已设置事件循环策略以支持子进程")
+    except Exception as e:
+        logger.debug(f"设置事件循环策略失败: {e}")
 
 from config import AUTO_REPLY, COOKIES_LIST
 import cookie_manager as cm

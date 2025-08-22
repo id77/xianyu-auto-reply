@@ -294,6 +294,8 @@ example_*.py
 *_example.py
 demo_*.py
 *_demo.py
+fix_*.py
+*_fix.py
 
 # 文档文件（除了README.md）
 *.md
@@ -301,6 +303,7 @@ demo_*.py
 !CHANGELOG.md
 !CONTRIBUTING.md
 !LICENSE.md
+!docs/*.md
 
 # 临时配置文件
 *.local.yml

@@ -1502,32 +1502,7 @@ def get_registration_status():
         return {'enabled': True, 'message': '注册功能已开启'}  # 出错时默认开启
 
 
-@app.get('/login-info-status')
-def get_login_info_status():
-    """获取默认登录信息显示状态（公开接口，无需认证）"""
-    from db_manager import db_manager
-    try:
-        enabled_str = db_manager.get_system_setting('show_default_login_info')
-        logger.debug(f"从数据库获取的登录信息显示设置值: '{enabled_str}'")
-
-        # 如果设置不存在，默认为开启
-        if enabled_str is None:
-            enabled_bool = True
-        else:
-            enabled_bool = enabled_str == 'true'
-
-        return {"enabled": enabled_bool}
-    except Exception as e:
-        logger.error(f"获取登录信息显示状态失败: {e}")
-        # 出错时默认为开启
-        return {"enabled": True}
-
-
 class RegistrationSettingUpdate(BaseModel):
-    enabled: bool
-
-
-class LoginInfoSettingUpdate(BaseModel):
     enabled: bool
 
 
@@ -1557,31 +1532,6 @@ def update_registration_settings(setting_data: RegistrationSettingUpdate, admin_
         logger.error(f"更新注册设置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.put('/login-info-settings')
-def update_login_info_settings(setting_data: LoginInfoSettingUpdate, admin_user: Dict[str, Any] = Depends(require_admin)):
-    """更新默认登录信息显示设置（仅管理员）"""
-    from db_manager import db_manager
-    try:
-        enabled = setting_data.enabled
-        success = db_manager.set_system_setting(
-            'show_default_login_info',
-            'true' if enabled else 'false',
-            '是否显示默认登录信息'
-        )
-        if success:
-            log_with_user('info', f"更新登录信息显示设置: {'开启' if enabled else '关闭'}", admin_user)
-            return {
-                'success': True,
-                'enabled': enabled,
-                'message': f"默认登录信息显示已{'开启' if enabled else '关闭'}"
-            }
-        else:
-            raise HTTPException(status_code=500, detail='更新登录信息显示设置失败')
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"更新登录信息显示设置失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 

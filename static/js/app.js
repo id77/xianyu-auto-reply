@@ -1752,6 +1752,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 首先检查认证状态
     const isAuthenticated = await checkAuth();
     if (!isAuthenticated) return;
+
+    // 加载系统版本号
+    loadSystemVersion();
     // 添加Cookie表单提交
     document.getElementById('addForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2450,6 +2453,7 @@ const channelTypeConfigs = {
         }
     ]
     },
+
     email: {
     title: '邮件通知',
     description: '通过SMTP服务器发送邮件通知，支持各种邮箱服务商',
@@ -2769,6 +2773,8 @@ function renderNotificationChannels(channels) {
     let channelType = channel.type;
     if (channelType === 'ding_talk') {
         channelType = 'dingtalk';  // 兼容旧的类型名
+    } else if (channelType === 'lark') {
+        channelType = 'feishu';  // 兼容lark类型名
     }
     const typeConfig = channelTypeConfigs[channelType];
     const typeDisplay = typeConfig ? typeConfig.title : channel.type;
@@ -2883,6 +2889,8 @@ async function editNotificationChannel(channelId) {
     let channelType = channel.type;
     if (channelType === 'ding_talk') {
         channelType = 'dingtalk';  // 兼容旧的类型名
+    } else if (channelType === 'lark') {
+        channelType = 'feishu';  // 兼容lark类型名
     }
 
     const config = channelTypeConfigs[channelType];
@@ -2907,6 +2915,10 @@ async function editNotificationChannel(channelId) {
         configData = { qq_number: channel.config };
         } else if (channel.type === 'dingtalk' || channel.type === 'ding_talk') {
         configData = { webhook_url: channel.config };
+        } else if (channel.type === 'feishu' || channel.type === 'lark') {
+        configData = { webhook_url: channel.config };
+        } else if (channel.type === 'bark') {
+        configData = { device_key: channel.config };
         } else {
         configData = { config: channel.config };
         }
@@ -7695,10 +7707,9 @@ async function loadSystemSettings() {
                 outgoingConfigs.style.display = isAdmin ? 'block' : 'none';
             }
 
-            // 如果是管理员，加载注册设置、登录信息设置和外发配置
+            // 如果是管理员，加载注册设置和外发配置
             if (isAdmin) {
                 await loadRegistrationSettings();
-                await loadLoginInfoSettings();
                 await loadOutgoingConfigs();
             }
         }
@@ -7916,76 +7927,6 @@ async function updateRegistrationSettings() {
     } catch (error) {
         console.error('更新注册设置失败:', error);
         showToast('更新注册设置失败', 'danger');
-    }
-}
-
-// 加载默认登录信息设置
-async function loadLoginInfoSettings() {
-    try {
-        const response = await fetch('/system-settings', {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
-        });
-
-        if (response.ok) {
-            const settings = await response.json();
-            const checkbox = document.getElementById('showDefaultLoginInfo');
-
-            if (checkbox && settings.show_default_login_info !== undefined) {
-                checkbox.checked = settings.show_default_login_info === 'true';
-            }
-        }
-    } catch (error) {
-        console.error('加载登录信息设置失败:', error);
-        showToast('加载登录信息设置失败', 'danger');
-    }
-}
-
-// 更新默认登录信息设置
-async function updateLoginInfoSettings() {
-    const checkbox = document.getElementById('showDefaultLoginInfo');
-    const statusDiv = document.getElementById('loginInfoStatus');
-    const statusText = document.getElementById('loginInfoStatusText');
-
-    if (!checkbox) return;
-
-    const enabled = checkbox.checked;
-
-    try {
-        const response = await fetch('/login-info-settings', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-                enabled: enabled
-            })
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            const message = enabled ? '默认登录信息显示已开启' : '默认登录信息显示已关闭';
-            showToast(message, 'success');
-
-            // 显示状态信息
-            if (statusDiv && statusText) {
-                statusText.textContent = message;
-                statusDiv.style.display = 'block';
-
-                // 3秒后隐藏状态信息
-                setTimeout(() => {
-                    statusDiv.style.display = 'none';
-                }, 3000);
-            }
-        } else {
-            const errorData = await response.json();
-            showToast(`更新失败: ${errorData.detail || '未知错误'}`, 'danger');
-        }
-    } catch (error) {
-        console.error('更新登录信息设置失败:', error);
-        showToast('更新登录信息设置失败', 'danger');
     }
 }
 
@@ -8649,6 +8590,7 @@ function updateBatchDeleteOrdersButton() {
         batchDeleteBtn.disabled = checkboxes.length === 0;
     }
 }
+
 
 // 页面加载完成后初始化订单搜索功能
 document.addEventListener('DOMContentLoaded', function() {
@@ -9754,3 +9696,165 @@ function exportSearchResults() {
         showToast('导出搜索结果失败', 'danger');
     }
 }
+
+// ================================
+// 版本管理功能
+// ================================
+
+/**
+ * 加载系统版本号并检查更新
+ */
+async function loadSystemVersion() {
+    try {
+        // 从 version.txt 文件读取当前系统版本
+        let currentSystemVersion = 'v1.0.0'; // 默认版本
+
+        try {
+            const versionResponse = await fetch('/static/version.txt');
+            if (versionResponse.ok) {
+                currentSystemVersion = (await versionResponse.text()).trim();
+            }
+        } catch (e) {
+            console.warn('无法读取本地版本文件，使用默认版本');
+        }
+
+        // 显示当前版本
+        document.getElementById('versionNumber').textContent = currentSystemVersion;
+
+        // 获取远程版本并检查更新
+        const response = await fetch('http://xianyu.zhinianblog.cn/index.php?action=getVersion');
+        const result = await response.json();
+
+        if (result.error) {
+            console.error('获取版本号失败:', result.message);
+            return;
+        }
+
+        const remoteVersion = result.data;
+
+        // 检查是否有更新
+        if (remoteVersion !== currentSystemVersion) {
+            showUpdateAvailable(remoteVersion);
+        }
+
+    } catch (error) {
+        console.error('获取版本号失败:', error);
+        document.getElementById('versionNumber').textContent = '未知';
+    }
+}
+
+/**
+ * 显示有更新标签
+ */
+function showUpdateAvailable(newVersion) {
+    const versionContainer = document.querySelector('.version-info');
+
+    if (!versionContainer) {
+        return;
+    }
+
+    // 检查是否已经有更新标签
+    if (versionContainer.querySelector('.update-badge')) {
+        return;
+    }
+
+    // 创建更新标签
+    const updateBadge = document.createElement('span');
+    updateBadge.className = 'badge bg-warning ms-2 update-badge';
+    updateBadge.style.cursor = 'pointer';
+    updateBadge.innerHTML = '<i class="bi bi-arrow-up-circle me-1"></i>有更新';
+    updateBadge.title = `新版本 ${newVersion} 可用，点击查看更新内容`;
+
+    // 点击事件
+    updateBadge.onclick = () => showUpdateInfo(newVersion);
+
+    // 添加到版本信息容器
+    versionContainer.appendChild(updateBadge);
+}
+
+/**
+ * 获取更新信息
+ */
+async function getUpdateInfo() {
+    try {
+        const response = await fetch('http://xianyu.zhinianblog.cn/index.php?action=getUpdateInfo');
+        const result = await response.json();
+
+        if (result.error) {
+            showToast('获取更新信息失败: ' + result.message, 'danger');
+            return null;
+        }
+
+        return result.data;
+
+    } catch (error) {
+        console.error('获取更新信息失败:', error);
+        showToast('获取更新信息失败', 'danger');
+        return null;
+    }
+}
+
+/**
+ * 显示更新信息（点击"有更新"标签时调用）
+ */
+async function showUpdateInfo(newVersion) {
+    const updateInfo = await getUpdateInfo();
+    if (!updateInfo) return;
+
+    let updateList = '';
+    if (updateInfo.updates && updateInfo.updates.length > 0) {
+        updateList = updateInfo.updates.map(item => `<li class="mb-2">${item}</li>`).join('');
+    }
+
+    const modalHtml = `
+        <div class="modal fade" id="updateModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title">
+                            <i class="bi bi-arrow-up-circle me-2"></i>版本更新内容
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i>
+                            <strong>发现新版本！</strong>以下是最新版本的更新内容。
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h6><i class="bi bi-tag me-1"></i>最新版本</h6>
+                                <p class="fs-4 text-success fw-bold">${updateInfo.version}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6><i class="bi bi-calendar me-1"></i>发布日期</h6>
+                                <p class="text-muted">${updateInfo.releaseDate || '未知'}</p>
+                            </div>
+                        </div>
+                        <hr>
+                        <h6><i class="bi bi-list-ul me-1"></i>更新内容</h6>
+                        ${updateList ? `<ul class="list-unstyled ps-3">${updateList}</ul>` : '<p class="text-muted">暂无更新内容</p>'}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 移除已存在的模态框
+    const existingModal = document.getElementById('updateModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // 添加新的模态框
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 显示模态框
+    const modal = new bootstrap.Modal(document.getElementById('updateModal'));
+    modal.show();
+}
+
+

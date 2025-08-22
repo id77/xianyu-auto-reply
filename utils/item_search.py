@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from loguru import logger
 
+from config import (DEFAULT_HEADERS)
+
 # 修复Docker环境中的asyncio事件循环策略问题
 if sys.platform.startswith('linux') or os.getenv('DOCKER_ENV'):
     try:
@@ -141,9 +143,11 @@ class XianyuSearcher:
             )
 
             logger.info("浏览器启动成功，创建上下文...")
+
+            headers = DEFAULT_HEADERS.copy()
             # 简化上下文创建，减少可能的问题
             self.context = await self.browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                user_agent=headers['user-agent'] or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={'width': 1280, 'height': 720}
             )
 

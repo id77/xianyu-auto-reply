@@ -109,13 +109,8 @@ xianyu-auto-reply/
 │       ├── index.html             # 主管理界面（集成所有功能模块）
 │       ├── login.html             # 用户登录页面
 │       ├── register.html          # 用户注册页面（邮箱验证）
-│       ├── user_management.html   # 用户管理页面（管理员功能）
-│       ├── data_management.html   # 数据管理页面（导入导出）
-│       ├── log_management.html    # 日志管理页面（实时日志查看）
-│       ├── item_search.html       # 商品搜索页面（独立版本）
 │       ├── js/
-│       │   ├── app.js             # 主要JavaScript逻辑
-│       │   └── modules/           # 模块化JavaScript文件
+│       │   └── app.js             # 主要JavaScript逻辑和所有功能模块
 │       ├── css/
 │       │   ├── variables.css      # CSS变量定义
 │       │   ├── layout.css         # 布局样式
@@ -137,16 +132,23 @@ xianyu-auto-reply/
 │       ├── wechat-group.png       # 微信群二维码
 │       └── qq-group.png           # QQ群二维码
 ├── 🐳 Docker部署
-│   ├── Dockerfile                 # Docker镜像构建文件
+│   ├── Dockerfile                 # Docker镜像构建文件（优化版）
+│   ├── Dockerfile-cn             # 国内优化版Docker镜像构建文件
 │   ├── docker-compose.yml        # Docker Compose一键部署配置
+│   ├── docker-compose-cn.yml     # 国内优化版Docker Compose配置
 │   ├── docker-deploy.sh          # Docker部署管理脚本（Linux/macOS）
 │   ├── docker-deploy.bat         # Docker部署管理脚本（Windows）
-│   └── entrypoint.sh              # Docker容器启动脚本
+│   ├── entrypoint.sh              # Docker容器启动脚本
+│   └── .dockerignore             # Docker构建忽略文件
+├── 🌐 Nginx配置
+│   └── nginx/
+│       ├── nginx.conf            # Nginx反向代理配置
+│       └── ssl/                  # SSL证书目录
 ├── 📋 配置文件
 │   ├── global_config.yml         # 全局配置文件（WebSocket、API等）
-│   ├── requirements.txt          # Python依赖包列表（精简版）
-│   ├── .gitignore                # Git忽略文件配置
-│   └── README.md                 # 项目说明文档
+│   ├── requirements.txt          # Python依赖包列表（精简版，无内置模块）
+│   ├── .gitignore                # Git忽略文件配置（完整版）
+│   └── README.md                 # 项目说明文档（本文件）
 └── 📊 数据目录（运行时创建）
     ├── data/                     # 数据目录（Docker挂载）
     │   └── xianyu_data.db        # SQLite数据库文件
@@ -336,7 +338,7 @@ python Start.py
 - **多重安全验证** - 超级加密保护，防止误操作和数据泄露
 - **批量处理能力** - 支持批量确认发货，提高处理效率
 - **异常处理机制** - 完善的错误处理和重试机制，确保发货成功
-- **多渠道通知** - 支持QQ、钉钉、邮件等多种发货通知方式
+- **多渠道通知** - 支持QQ、钉钉、飞书、Bark、邮件等多种发货通知方式
 
 ### 👥 多用户系统
 - **用户注册登录** - 支持邮箱验证和图形验证码，安全可靠
@@ -360,10 +362,11 @@ python Start.py
 - **账号状态验证** - 自动检查cookies启用状态，确保搜索功能正常
 
 ### 📱 通知系统
-- **多渠道支持** - QQ、钉钉、邮件、微信、Telegram等6种通知方式
+- **多渠道支持** - QQ、钉钉、飞书、Bark、邮件、微信、Telegram等8种通知方式
 - **智能配置** - 可视化配置界面，支持复杂参数和加密设置
 - **实时推送** - 重要事件实时通知，及时了解系统状态
 - **通知模板** - 自定义通知内容和格式，个性化消息推送
+- **移动端支持** - Bark iOS推送，随时随地接收通知
 
 ### 🔐 安全特性
 - **Cookie安全管理** - 加密存储用户凭证，定期自动刷新
@@ -407,30 +410,27 @@ python Start.py
 - **`image_uploader.py`** - 图片上传工具，支持多种CDN服务商、自动压缩、格式优化、批量上传
 
 ### 🌐 前端界面 (`static/`)
-- **`index.html`** - 主管理界面，包含账号管理、关键词管理、系统监控、实时状态显示
+- **`index.html`** - 主管理界面，集成所有功能模块：账号管理、关键词管理、商品管理、发货管理、系统监控、用户管理等
 - **`login.html`** - 用户登录页面，支持图形验证码、记住登录状态、多重安全验证
 - **`register.html`** - 用户注册页面，支持邮箱验证码、实时验证、密码强度检测
-- **`user_management.html`** - 用户管理页面，管理员专用，用户增删改查、权限管理
-- **`data_management.html`** - 数据管理页面，支持Excel导入导出、数据备份、批量操作
-- **`log_management.html`** - 日志管理页面，实时日志查看、日志搜索过滤、日志下载
-- **`item_search.html`** - 商品搜索页面，获取真实闲鱼商品数据，支持多条件搜索
-- **`js/app.js`** - 主要JavaScript逻辑，处理前端交互、API调用、实时更新
-- **`css/`** - 模块化样式文件，包含布局、组件、主题等分类样式，响应式设计
+- **`js/app.js`** - 主要JavaScript逻辑，包含所有功能模块：前端交互、API调用、实时更新、数据管理、用户界面控制
+- **`css/`** - 模块化样式文件，包含布局、组件、主题等分类样式，响应式设计，支持明暗主题切换
 - **`xianyu_js_version_2.js`** - 闲鱼JavaScript工具库，加密解密、数据处理、API封装
-- **`lib/`** - 前端依赖库，包含Bootstrap、jQuery、Chart.js等第三方库
+- **`lib/`** - 前端依赖库，包含Bootstrap 5、Bootstrap Icons等第三方库
+- **`uploads/images/`** - 图片上传目录，支持发货图片和其他媒体文件存储
 
 ### 🐳 部署配置
-- **`Dockerfile`** - Docker镜像构建文件，包含Python环境、Playwright浏览器、系统依赖，支持无头模式运行
-- **`docker-compose.yml`** - Docker Compose配置，支持一键部署、环境变量配置、资源限制、健康检查
-- **`docker-deploy.sh`** - Docker部署管理脚本，提供构建、启动、监控、日志查看等功能（Linux/macOS）
-- **`docker-deploy.bat`** - Windows版本部署脚本，支持Windows环境一键部署
-- **`entrypoint.sh`** - Docker容器启动脚本，处理环境初始化和服务启动
-- **`nginx/nginx.conf`** - Nginx反向代理配置，支持负载均衡、SSL终端、WebSocket代理
-- **`requirements.txt`** - Python依赖包列表，精简版本无冗余依赖，按功能分类组织，包含详细说明
-- **`.gitignore`** - Git忽略文件配置，完整覆盖Python、Docker、前端等开发文件
-- **`.dockerignore`** - Docker构建忽略文件，优化构建上下文大小和构建速度
-- **`Dockerfile-cn`** - 国内优化版Docker镜像构建文件，使用国内镜像源加速构建
-- **`docker-compose-cn.yml`** - 国内优化版Docker Compose配置文件
+- **`Dockerfile`** - Docker镜像构建文件，基于Python 3.11-slim，包含Playwright浏览器、系统依赖，支持无头模式运行，优化构建层级
+- **`Dockerfile-cn`** - 国内优化版Docker镜像构建文件，使用国内镜像源加速构建，适合国内网络环境
+- **`docker-compose.yml`** - Docker Compose配置，支持一键部署、完整环境变量配置、资源限制、健康检查、可选Nginx代理
+- **`docker-compose-cn.yml`** - 国内优化版Docker Compose配置文件，使用国内镜像源
+- **`docker-deploy.sh`** - Docker部署管理脚本，提供构建、启动、停止、重启、监控、日志查看等功能（Linux/macOS）
+- **`docker-deploy.bat`** - Windows版本部署脚本，支持Windows环境一键部署和管理
+- **`entrypoint.sh`** - Docker容器启动脚本，处理环境初始化、目录创建、权限设置和服务启动
+- **`nginx/nginx.conf`** - Nginx反向代理配置，支持负载均衡、SSL终端、WebSocket代理、静态文件服务
+- **`requirements.txt`** - Python依赖包列表，精简版本无内置模块，按功能分类组织，包含详细版本说明和安装指南
+- **`.gitignore`** - Git忽略文件配置，完整覆盖Python、Docker、前端、测试、临时文件等，支持项目特定文件类型
+- **`.dockerignore`** - Docker构建忽略文件，优化构建上下文大小和构建速度，排除不必要的文件和目录
 
 ## 🏗️ 详细技术架构
 
@@ -691,9 +691,6 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 
 欢迎加入我们的技术交流群，获取实时帮助和最新更新：
 
-#### 闲鱼官方闲置群
-<img src="static/xianyu-group.png" alt="闲鱼官方闲置群二维码" width="200">
-
 #### 微信交流群
 <img src="static/wechat-group.png" alt="微信群二维码" width="200">
 
@@ -779,7 +776,3 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 🎉 **开始使用闲鱼自动回复系统，让您的闲鱼店铺管理更加智能高效！**
 
 **请记住：仅限学习使用，禁止商业用途！**
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zhinianboke/xianyu-auto-reply&type=Date)](https://www.star-history.com/#zhinianboke/xianyu-auto-reply&Date)

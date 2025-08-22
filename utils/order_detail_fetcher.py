@@ -15,6 +15,8 @@ import json
 from threading import Lock
 from collections import defaultdict
 
+from config import (DEFAULT_HEADERS)
+
 # 修复Docker环境中的asyncio事件循环策略问题
 if sys.platform.startswith('linux') or os.getenv('DOCKER_ENV'):
     try:
@@ -133,10 +135,11 @@ class OrderDetailFetcher:
 
             logger.info("浏览器启动成功，创建上下文...")
 
+            headers = DEFAULT_HEADERS.copy()
             # 创建浏览器上下文
             self.context = await self.browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+                user_agent=headers['user-agent'] or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
             )
 
             logger.info("浏览器上下文创建成功，设置HTTP头...")
