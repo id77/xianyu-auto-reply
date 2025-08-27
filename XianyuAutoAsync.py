@@ -2267,6 +2267,10 @@ class XianyuLive:
                 'url': scheme,
             }
 
+            if re.search(r'Token刷新失败', message):
+                data['level'] = 'critical'
+                data['volume'] = 5
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(webhook_url, json=data, timeout=10) as response:
                     if response.status == 200:
