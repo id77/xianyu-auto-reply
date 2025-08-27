@@ -2267,7 +2267,7 @@ class XianyuLive:
                 'url': scheme,
             }
 
-            if re.search(r'Token刷新失败', message):
+            if error and re.search(r'Token刷新失败', error):
                 data['level'] = 'critical'
                 data['volume'] = 5
 
