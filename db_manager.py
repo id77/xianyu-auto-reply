@@ -4390,34 +4390,31 @@ class DBManager:
                 return None
 
     def get_orders_by_cookie(self, cookie_id: str, limit: int = 100):
-        """根据Cookie ID获取订单列表"""
+        """
+        根据Cookie ID获取订单列表，返回所有字段，自动适配表结构，防止越权。
+        只允许查本账号订单，不能查全部。
+        """
+        if not cookie_id:
+            # 防止越权，cookie_id 不能为空
+            logger.warning("cookie_id 不能为空")
+            return []
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                cursor.execute('''
-                SELECT order_id, item_id, buyer_id, spec_name, spec_value,
-                       quantity, amount, order_status, created_at, updated_at
-                FROM orders WHERE cookie_id = ?
-                ORDER BY created_at DESC LIMIT ?
-                ''', (cookie_id, limit))
+                # 获取所有字段名
+                cursor.execute("PRAGMA table_info(orders)")
+                columns_info = cursor.fetchall()
+                columns = [col[1] for col in columns_info]
+
+                # 查询本 cookie_id 的订单
+                cursor.execute(f"SELECT * FROM orders WHERE cookie_id = ? ORDER BY created_at DESC LIMIT ?", (cookie_id, limit))
+                rows = cursor.fetchall()
 
                 orders = []
-                for row in cursor.fetchall():
-                    orders.append({
-                        'order_id': row[0],
-                        'item_id': row[1],
-                        'buyer_id': row[2],
-                        'spec_name': row[3],
-                        'spec_value': row[4],
-                        'quantity': row[5],
-                        'amount': row[6],
-                        'order_status': row[7],
-                        'created_at': row[8],
-                        'updated_at': row[9]
-                    })
-
+                for row in rows:
+                    order = dict(zip(columns, row))
+                    orders.append(order)
                 return orders
-
             except Exception as e:
                 logger.error(f"获取Cookie订单列表失败: {cookie_id} - {e}")
                 return []
