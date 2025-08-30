@@ -226,7 +226,7 @@
       </div>
 
       <!-- 默认账号提示 -->
-      <div class="mt-4 p-3 bg-light rounded-3">
+      <div id="defaultLoginInfo" class="mt-4 p-3 bg-light rounded-3">
         <div class="text-center">
           <small class="text-muted">
             <i class="bi bi-info-circle me-1"></i>
@@ -659,10 +659,32 @@
       }
     }
 
+    // 检查默认登录信息显示状态
+    async function checkLoginInfoStatus() {
+      try {
+        const response = await fetch('/login-info-status');
+        const result = await response.json();
+
+        const defaultLoginInfo = document.getElementById('defaultLoginInfo');
+        if (result.enabled) {
+          defaultLoginInfo.style.display = 'block';
+        } else {
+          defaultLoginInfo.style.display = 'none';
+        }
+      } catch (error) {
+        console.error('检查登录信息显示状态失败:', error);
+        // 出错时默认显示
+        document.getElementById('defaultLoginInfo').style.display = 'block';
+      }
+    }
+
     // 事件监听器
     document.addEventListener('DOMContentLoaded', function() {
       // 检查注册状态
       checkRegistrationStatus();
+
+      // 检查默认登录信息显示状态
+      checkLoginInfoStatus();
 
       // 登录方式切换
       document.querySelectorAll('input[name="loginType"]').forEach(radio => {

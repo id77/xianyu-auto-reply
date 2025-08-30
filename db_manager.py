@@ -430,13 +430,15 @@ class DBManager:
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
             ('theme_color', 'blue', '主题颜色'),
             ('registration_enabled', 'true', '是否开启用户注册'),
+            ('show_default_login_info', 'true', '是否显示默认登录信息'),
             ('smtp_server', '', 'SMTP服务器地址'),
             ('smtp_port', '587', 'SMTP端口'),
             ('smtp_user', '', 'SMTP登录用户名（发件邮箱）'),
             ('smtp_password', '', 'SMTP登录密码/授权码'),
             ('smtp_from', '', '发件人显示名（留空则使用用户名）'),
             ('smtp_use_tls', 'true', '是否启用TLS'),
-            ('smtp_use_ssl', 'false', '是否启用SSL')
+            ('smtp_use_ssl', 'false', '是否启用SSL'),
+            ('qq_reply_secret_key', 'xianyu_qq_reply_2024', 'QQ回复消息API秘钥')
             ''')
 
             # 检查并升级数据库
@@ -1234,7 +1236,7 @@ class DBManager:
                         'user_id': result[2],
                         'auto_confirm': bool(result[3]),
                         'remark': result[4] or '',
-                        'pause_duration': result[5] if result[5] is not None else 10,
+                        'pause_duration': result[5] if result[5] is not None else 10,  # 0是有效值，表示不暂停
                         'created_at': result[6]
                     }
                 return None
@@ -1295,7 +1297,7 @@ class DBManager:
                         self._execute_sql(cursor, "UPDATE cookies SET pause_duration = 10 WHERE id = ?", (cookie_id,))
                         self.conn.commit()
                         return 10
-                    return result[0]  # 返回实际值，不使用or操作符
+                    return result[0]  # 返回实际值，包括0（0表示不暂停）
                 else:
                     logger.warning(f"账号 {cookie_id} 未找到记录，使用默认值10分钟")
                     return 10
@@ -1362,6 +1364,29 @@ class DBManager:
             try:
                 cursor = self.conn.cursor()
 
+                # 检查是否与现有图片关键词冲突
+                for keyword, reply, item_id in keywords:
+                    normalized_item_id = item_id if item_id and item_id.strip() else None
+
+                    # 检查是否存在同名的图片关键词
+                    if normalized_item_id:
+                        # 有商品ID的情况：检查 (cookie_id, keyword, item_id) 是否存在图片关键词
+                        self._execute_sql(cursor,
+                            "SELECT type FROM keywords WHERE cookie_id = ? AND keyword = ? AND item_id = ? AND type = 'image'",
+                            (cookie_id, keyword, normalized_item_id))
+                    else:
+                        # 通用关键词的情况：检查 (cookie_id, keyword) 是否存在图片关键词
+                        self._execute_sql(cursor,
+                            "SELECT type FROM keywords WHERE cookie_id = ? AND keyword = ? AND (item_id IS NULL OR item_id = '') AND type = 'image'",
+                            (cookie_id, keyword))
+
+                    if cursor.fetchone():
+                        # 存在同名图片关键词，抛出友好的错误信息
+                        item_desc = f"商品ID: {normalized_item_id}" if normalized_item_id else "通用关键词"
+                        error_msg = f"关键词 '{keyword}' （{item_desc}） 已存在（图片关键词），无法保存为文本关键词"
+                        logger.warning(f"文本关键词与图片关键词冲突: Cookie={cookie_id}, 关键词='{keyword}', {item_desc}")
+                        raise ValueError(error_msg)
+
                 # 只删除该cookie_id的文本类型关键字，保留图片关键词
                 self._execute_sql(cursor,
                     "DELETE FROM keywords WHERE cookie_id = ? AND (type IS NULL OR type = 'text')",
@@ -1372,22 +1397,15 @@ class DBManager:
                     # 标准化item_id：空字符串转为NULL
                     normalized_item_id = item_id if item_id and item_id.strip() else None
 
-                    try:
-                        self._execute_sql(cursor,
-                            "INSERT INTO keywords (cookie_id, keyword, reply, item_id, type) VALUES (?, ?, ?, ?, 'text')",
-                            (cookie_id, keyword, reply, normalized_item_id))
-                    except sqlite3.IntegrityError as ie:
-                        # 如果遇到唯一约束冲突，记录详细错误信息并回滚
-                        item_desc = f"商品ID: {normalized_item_id}" if normalized_item_id else "通用关键词"
-                        logger.error(f"关键词唯一约束冲突: Cookie={cookie_id}, 关键词='{keyword}', {item_desc}")
-                        self.conn.rollback()
-                        raise ie
+                    self._execute_sql(cursor,
+                        "INSERT INTO keywords (cookie_id, keyword, reply, item_id, type) VALUES (?, ?, ?, ?, 'text')",
+                        (cookie_id, keyword, reply, normalized_item_id))
 
                 self.conn.commit()
                 logger.info(f"文本关键字保存成功: {cookie_id}, {len(keywords)}条，图片关键词已保留")
                 return True
-            except sqlite3.IntegrityError:
-                # 唯一约束冲突，重新抛出异常让上层处理
+            except ValueError:
+                # 重新抛出友好的错误信息
                 raise
             except Exception as e:
                 logger.error(f"文本关键字保存失败: {e}")

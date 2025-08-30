@@ -1,13 +1,38 @@
-# 🐟 闲鱼自动回复系统  （另外提供cursor pro 14天试用账号，物美价廉，欢迎联系）
+# 🐟 闲鱼自动回复系统
 
 [![GitHub](https://img.shields.io/badge/GitHub-zhinianboke%2Fxianyu--auto--reply-blue?logo=github)](https://github.com/zhinianboke/xianyu-auto-reply)
 [![Docker](https://img.shields.io/badge/Docker-一键部署-blue?logo=docker)](https://github.com/zhinianboke/xianyu-auto-reply#-快速开始)
 [![Python](https://img.shields.io/badge/Python-3.11+-green?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-仅供学习-red.svg)](#️-版权声明与使用条款)
 
+## 最新代码获取地址
+
+我用夸克网盘给你分享了「自动发货系统源码」，点击链接或复制整段内容，打开「夸克APP」即可获取。 /~5e4237vG5B~:/ 链接：https://pan.quark.cn/s/88d118bd700e
+
+## 📋 项目概述
+
+一个功能完整的闲鱼自动回复和管理系统，采用现代化的技术架构，支持多用户、多账号管理，具备智能回复、自动发货、自动确认发货、商品管理等企业级功能。系统基于Python异步编程，使用FastAPI提供RESTful API，SQLite数据库存储，支持Docker一键部署。
+
 > **⚠️ 重要提示：本项目仅供学习研究使用，严禁商业用途！使用前请仔细阅读[版权声明](#️-版权声明与使用条款)。**
 
-一个功能完整的闲鱼自动回复和管理系统，支持多用户、多账号管理，具备智能回复、自动发货、自动确认发货、商品管理等企业级功能。
+## 🏗️ 技术架构
+
+### 核心技术栈
+- **后端框架**: FastAPI + Python 3.11+ 异步编程
+- **数据库**: SQLite 3 + 多用户数据隔离 + 自动迁移
+- **前端**: Bootstrap 5 + Vanilla JavaScript + 响应式设计
+- **通信协议**: WebSocket + RESTful API + 实时通信
+- **部署方式**: Docker + Docker Compose + 一键部署
+- **日志系统**: Loguru + 文件轮转 + 实时收集
+- **安全认证**: JWT + 图形验证码 + 邮箱验证 + 权限控制
+
+### 系统架构特点
+- **微服务设计**: 模块化架构，易于维护和扩展
+- **异步处理**: 基于asyncio的高性能异步处理
+- **多用户隔离**: 完全的数据隔离和权限控制
+- **容器化部署**: Docker容器化，支持一键部署
+- **实时监控**: WebSocket实时通信和状态监控
+- **自动化运维**: 自动重连、异常恢复、日志轮转
 
 ## ✨ 核心特性
 
@@ -99,11 +124,12 @@ xianyu-auto-reply/
 │       ├── xianyu_utils.py        # 闲鱼API工具函数（加密、签名、解析）
 │       ├── message_utils.py       # 消息格式化和处理工具
 │       ├── ws_utils.py            # WebSocket客户端封装
-│       ├── qr_login.py            # 二维码登录功能
+│       ├── image_utils.py         # 图片处理和管理工具
+│       ├── image_uploader.py      # 图片上传到闲鱼CDN
+│       ├── image_utils.py         # 图片处理工具（压缩、格式转换）
 │       ├── item_search.py         # 商品搜索功能（基于Playwright，无头模式）
 │       ├── order_detail_fetcher.py # 订单详情获取工具
-│       ├── image_utils.py         # 图片处理工具（压缩、格式转换）
-│       └── image_uploader.py      # 图片上传到CDN工具
+│       └── qr_login.py            # 二维码登录功能
 ├── 🌐 前端界面
 │   └── static/
 │       ├── index.html             # 主管理界面（集成所有功能模块）
@@ -691,6 +717,9 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 
 欢迎加入我们的技术交流群，获取实时帮助和最新更新：
 
+#### 闲鱼官方闲置群
+<img src="static/xianyu-group.png" alt="闲鱼官方闲置群二维码" width="200">
+
 #### 微信交流群
 <img src="static/wechat-group.png" alt="微信群二维码" width="200">
 
@@ -773,6 +802,89 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 
 ---
 
+## 📊 项目统计
+
+- **代码行数**: 10,000+ 行
+- **功能模块**: 15+ 个核心模块
+- **API接口**: 50+ 个RESTful接口
+- **数据库表**: 20+ 个数据表
+- **支持平台**: Windows/Linux/macOS
+- **部署方式**: Docker一键部署
+- **开发周期**: 持续更新维护
+
+## 🎯 项目优势
+
+### 技术优势
+- ✅ **现代化架构**: 基于FastAPI + Python 3.11+异步编程
+- ✅ **容器化部署**: Docker + Docker Compose一键部署
+- ✅ **多用户系统**: 完整的用户注册、登录、权限管理
+- ✅ **数据隔离**: 每个用户的数据完全独立，安全可靠
+- ✅ **实时通信**: WebSocket实时消息处理和状态监控
+
+### 功能优势
+- ✅ **智能回复**: 关键词匹配 + AI智能回复 + 优先级策略
+- ✅ **自动发货**: 多种发货方式，支持规格匹配和延时发货
+- ✅ **商品管理**: 自动收集商品信息，支持批量操作
+- ✅ **订单管理**: 订单详情获取，支持自动确认发货
+- ✅ **安全保护**: 多层加密，防重复机制，异常恢复
+
+### 运维优势
+- ✅ **日志系统**: 完整的日志记录和实时查看
+- ✅ **监控告警**: 账号状态监控和异常告警
+- ✅ **数据备份**: 自动数据备份和恢复机制
+- ✅ **性能优化**: 异步处理，高并发支持
+- ✅ **易于维护**: 模块化设计，代码结构清晰
+- ✅ **使用统计**: 匿名使用统计，帮助改进产品
+
+## 📊 用户统计说明
+
+### 统计目的
+为了了解有多少人在使用这个系统，系统会发送匿名的用户统计信息。
+
+### 收集的信息
+- **匿名ID**: 基于机器特征生成的唯一标识符（重启不变）
+- **操作系统**: 系统类型（如Windows、Linux）
+- **版本信息**: 软件版本号
+
+### 隐私保护
+- ✅ **完全匿名**: 不收集任何个人身份信息
+- ✅ **数据安全**: 不收集账号、密码、关键词等敏感信息
+- ✅ **本地优先**: 所有业务数据仅存储在本地
+- ✅ **持久化ID**: Docker重建时ID不变（保存在数据库中）
+
+### 查看统计信息
+
+#### 方式1: Python统计服务器
+```bash
+# 部署Python统计服务器
+python simple_stats_server.py
+
+# 访问统计服务器查看用户数量
+curl http://localhost:8081/stats
+```
+
+#### 方式2: PHP统计服务器
+```bash
+# 将index.php部署到Web服务器（如Apache/Nginx）
+# 访问统计接口
+curl http://localhost/php/stats
+
+# 测试统计功能
+python test_php_stats.py
+```
+
+**PHP统计服务器特点**:
+- 数据保存在`user_stats.txt`文件中
+- 支持用户数据更新（anonymous_id作为key）
+- 自动生成统计摘要
+- 记录操作日志到`stats.log`
+
+---
+
 🎉 **开始使用闲鱼自动回复系统，让您的闲鱼店铺管理更加智能高效！**
 
-**请记住：仅限学习使用，禁止商业用途！**
+**⚠️ 重要提醒：本项目仅供学习研究使用，严禁商业用途！**
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=zhinianboke/xianyu-auto-reply&type=Date)](https://www.star-history.com/#zhinianboke/xianyu-auto-reply&Date)

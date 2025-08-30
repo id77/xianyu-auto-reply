@@ -37,6 +37,11 @@ class AutoReplyPauseManager:
             logger.error(f"获取账号 {cookie_id} 暂停时间失败: {e}，使用默认10分钟")
             pause_minutes = 10
 
+        # 如果暂停时间为0，表示不暂停
+        if pause_minutes == 0:
+            logger.info(f"【{cookie_id}】检测到手动发出消息，但暂停时间设置为0，不暂停自动回复")
+            return
+
         pause_duration_seconds = pause_minutes * 60
         pause_until = time.time() + pause_duration_seconds
         self.paused_chats[chat_id] = pause_until
@@ -122,6 +127,10 @@ class XianyuLive:
     # 商品详情缓存（24小时有效）
     _item_detail_cache = {}  # {item_id: {'detail': str, 'timestamp': float}}
     _item_detail_cache_lock = asyncio.Lock()
+
+    # 类级别的实例管理字典，用于API调用
+    _instances = {}  # {cookie_id: XianyuLive实例}
+    _instances_lock = asyncio.Lock()
     
     def _safe_str(self, e):
         """安全地将异常转换为字符串"""
@@ -202,6 +211,10 @@ class XianyuLive:
         self.cookie_refresh_running = False  # 防止重复执行Cookie刷新
         self.cookie_refresh_enabled = True  # 是否启用Cookie刷新功能
 
+        # 扫码登录Cookie刷新标志
+        self.last_qr_cookie_refresh_time = 0  # 记录上次扫码登录Cookie刷新时间
+        self.qr_cookie_refresh_cooldown = 600  # 扫码登录Cookie刷新后的冷却时间：10分钟
+
 
 
         # WebSocket连接监控
@@ -209,7 +222,41 @@ class XianyuLive:
         self.max_connection_failures = 5  # 最大连续失败次数
         self.last_successful_connection = 0  # 上次成功连接时间
 
+        # 注册实例到类级别字典（用于API调用）
+        self._register_instance()
 
+    def _register_instance(self):
+        """注册当前实例到类级别字典"""
+        try:
+            # 使用同步方式注册，避免在__init__中使用async
+            XianyuLive._instances[self.cookie_id] = self
+            logger.debug(f"【{self.cookie_id}】实例已注册到全局字典")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】注册实例失败: {self._safe_str(e)}")
+
+    def _unregister_instance(self):
+        """从类级别字典中注销当前实例"""
+        try:
+            if self.cookie_id in XianyuLive._instances:
+                del XianyuLive._instances[self.cookie_id]
+                logger.debug(f"【{self.cookie_id}】实例已从全局字典中注销")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】注销实例失败: {self._safe_str(e)}")
+
+    @classmethod
+    def get_instance(cls, cookie_id: str):
+        """获取指定cookie_id的XianyuLive实例"""
+        return cls._instances.get(cookie_id)
+
+    @classmethod
+    def get_all_instances(cls):
+        """获取所有活跃的XianyuLive实例"""
+        return dict(cls._instances)
+
+    @classmethod
+    def get_instance_count(cls):
+        """获取当前活跃实例数量"""
+        return len(cls._instances)
 
     def is_auto_confirm_enabled(self) -> bool:
         """检查当前账号是否启用自动确认发货"""
@@ -493,14 +540,16 @@ class XianyuLive:
             # 提取订单ID
             order_id = self._extract_order_id(message)
 
-            # 订单ID已提取，将在自动发货时进行确认发货处理
-            if order_id:
-                logger.info(f'[{msg_time}] 【{self.cookie_id}】提取到订单ID: {order_id}，将在自动发货时处理确认发货')
-            else:
-                logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 未能提取到订单ID')
+            # 如果order_id不存在，直接返回
+            if not order_id:
+                logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 未能提取到订单ID，跳过自动发货')
+                return
 
-            # 使用订单ID作为锁的键，如果没有订单ID则使用item_id+chat_id组合
-            lock_key = order_id if order_id else f"{item_id}_{chat_id}"
+            # 订单ID已提取，将在自动发货时进行确认发货处理
+            logger.info(f'[{msg_time}] 【{self.cookie_id}】提取到订单ID: {order_id}，将在自动发货时处理确认发货')
+
+            # 使用订单ID作为锁的键
+            lock_key = order_id
 
             # 第一重检查：延迟锁状态（在获取锁之前检查，避免不必要的等待）
             if self.is_lock_held(lock_key):
@@ -3443,6 +3492,7 @@ class XianyuLive:
                 logger.error(f"【{self.cookie_id}】清理任务失败: {self._safe_str(e)}")
                 await asyncio.sleep(300)  # 出错后也等待5分钟再重试
 
+
     async def cookie_refresh_loop(self):
         """Cookie刷新定时任务 - 每小时执行一次"""
         while True:
@@ -3536,6 +3586,348 @@ class XianyuLive:
         status = "启用" if enabled else "禁用"
         logger.info(f"【{self.cookie_id}】Cookie刷新功能已{status}")
 
+
+    async def refresh_cookies_from_qr_login(self, qr_cookies_str: str, cookie_id: str = None, user_id: int = None):
+        """使用扫码登录获取的cookie访问指定界面获取真实cookie并存入数据库
+
+        Args:
+            qr_cookies_str: 扫码登录获取的cookie字符串
+            cookie_id: 可选的cookie ID，如果不提供则使用当前实例的cookie_id
+            user_id: 可选的用户ID，如果不提供则使用当前实例的user_id
+
+        Returns:
+            bool: 成功返回True，失败返回False
+        """
+        playwright = None
+        browser = None
+        target_cookie_id = cookie_id or self.cookie_id
+        target_user_id = user_id or self.user_id
+
+        try:
+            import asyncio
+            from playwright.async_api import async_playwright
+            from utils.xianyu_utils import trans_cookies
+
+            logger.info(f"【{target_cookie_id}】开始使用扫码登录cookie获取真实cookie...")
+            logger.info(f"【{target_cookie_id}】扫码cookie长度: {len(qr_cookies_str)}")
+
+            # 解析扫码登录的cookie
+            qr_cookies_dict = trans_cookies(qr_cookies_str)
+            logger.info(f"【{target_cookie_id}】扫码cookie字段数: {len(qr_cookies_dict)}")
+
+            # Docker环境下修复asyncio子进程问题
+            is_docker = os.getenv('DOCKER_ENV') or os.path.exists('/.dockerenv')
+
+            if is_docker:
+                logger.debug(f"【{target_cookie_id}】检测到Docker环境，应用asyncio修复")
+
+                # 创建一个完整的虚拟子进程监视器
+                class DummyChildWatcher:
+                    def __enter__(self):
+                        return self
+                    def __exit__(self, *args):
+                        pass
+                    def is_active(self):
+                        return True
+                    def add_child_handler(self, *args, **kwargs):
+                        pass
+                    def remove_child_handler(self, *args, **kwargs):
+                        pass
+                    def attach_loop(self, *args, **kwargs):
+                        pass
+                    def close(self):
+                        pass
+                    def __del__(self):
+                        pass
+
+                # 创建自定义事件循环策略
+                class DockerEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+                    def get_child_watcher(self):
+                        return DummyChildWatcher()
+
+                # 临时设置策略
+                old_policy = asyncio.get_event_loop_policy()
+                asyncio.set_event_loop_policy(DockerEventLoopPolicy())
+
+                try:
+                    # 添加超时机制，避免无限等待
+                    playwright = await asyncio.wait_for(
+                        async_playwright().start(),
+                        timeout=30.0  # 30秒超时
+                    )
+                    logger.debug(f"【{target_cookie_id}】Docker环境下Playwright启动成功")
+                except asyncio.TimeoutError:
+                    logger.error(f"【{target_cookie_id}】Docker环境下Playwright启动超时")
+                    return False
+                finally:
+                    # 恢复原策略
+                    asyncio.set_event_loop_policy(old_policy)
+            else:
+                # 非Docker环境，正常启动（也添加超时保护）
+                try:
+                    playwright = await asyncio.wait_for(
+                        async_playwright().start(),
+                        timeout=30.0  # 30秒超时
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"【{target_cookie_id}】Playwright启动超时")
+                    return False
+
+            # 启动浏览器（参照商品搜索的配置）
+            browser_args = [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-ipc-flooding-protection',
+                '--disable-extensions',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--disable-translate',
+                '--hide-scrollbars',
+                '--mute-audio',
+                '--no-default-browser-check',
+                '--no-pings'
+            ]
+
+            # 在Docker环境中添加额外参数
+            if os.getenv('DOCKER_ENV'):
+                browser_args.extend([
+                    '--single-process',
+                    '--disable-background-networking',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-hang-monitor',
+                    '--disable-popup-blocking',
+                    '--disable-prompt-on-repost',
+                    '--disable-web-resources',
+                    '--metrics-recording-only',
+                    '--safebrowsing-disable-auto-update',
+                    '--enable-automation',
+                    '--password-store=basic',
+                    '--use-mock-keychain'
+                ])
+
+            # 使用无头浏览器
+            browser = await playwright.chromium.launch(
+                headless=True,  # 改回无头模式
+                args=browser_args
+            )
+
+            headers = DEFAULT_HEADERS.copy()
+            # 创建浏览器上下文
+            context_options = {
+                'user_agent': headers['user-agent'] or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+            }
+
+            # 使用标准窗口大小
+            context_options['viewport'] = {'width': 1920, 'height': 1080}
+
+            context = await browser.new_context(**context_options)
+
+            # 设置扫码登录获取的Cookie
+            cookies = []
+            for cookie_pair in qr_cookies_str.split('; '):
+                if '=' in cookie_pair:
+                    name, value = cookie_pair.split('=', 1)
+                    cookies.append({
+                        'name': name.strip(),
+                        'value': value.strip(),
+                        'domain': '.goofish.com',
+                        'path': '/'
+                    })
+
+            await context.add_cookies(cookies)
+            logger.info(f"【{target_cookie_id}】已设置 {len(cookies)} 个扫码Cookie到浏览器")
+
+            # 打印设置的扫码Cookie详情
+            logger.info(f"【{target_cookie_id}】=== 设置到浏览器的扫码Cookie ===")
+            for i, cookie in enumerate(cookies, 1):
+                logger.info(f"【{target_cookie_id}】{i:2d}. {cookie['name']}: {cookie['value'][:50]}{'...' if len(cookie['value']) > 50 else ''}")
+
+            # 创建页面
+            page = await context.new_page()
+
+            # 等待页面准备
+            await asyncio.sleep(0.1)
+
+            # 访问指定页面获取真实cookie
+            target_url = "https://www.goofish.com/im?spm=a21ybx.home.sidebar.1.4c053da6vYwnmf"
+            logger.info(f"【{target_cookie_id}】访问页面获取真实cookie: {target_url}")
+
+            # 使用更灵活的页面访问策略
+            try:
+                # 首先尝试较短超时
+                await page.goto(target_url, wait_until='domcontentloaded', timeout=15000)
+                logger.info(f"【{target_cookie_id}】页面访问成功")
+            except Exception as e:
+                if 'timeout' in str(e).lower():
+                    logger.warning(f"【{target_cookie_id}】页面访问超时，尝试降级策略...")
+                    try:
+                        # 降级策略：只等待基本加载
+                        await page.goto(target_url, wait_until='load', timeout=20000)
+                        logger.info(f"【{target_cookie_id}】页面访问成功（降级策略）")
+                    except Exception as e2:
+                        logger.warning(f"【{target_cookie_id}】降级策略也失败，尝试最基本访问...")
+                        # 最后尝试：不等待任何加载完成
+                        await page.goto(target_url, timeout=25000)
+                        logger.info(f"【{target_cookie_id}】页面访问成功（最基本策略）")
+                else:
+                    raise e
+
+            # 等待页面完全加载并获取真实cookie
+            logger.info(f"【{target_cookie_id}】页面加载完成，等待获取真实cookie...")
+            await asyncio.sleep(2)
+
+            # 执行一次刷新以确保获取最新的cookie
+            logger.info(f"【{target_cookie_id}】执行页面刷新获取最新cookie...")
+            try:
+                await page.reload(wait_until='domcontentloaded', timeout=12000)
+                logger.info(f"【{target_cookie_id}】页面刷新成功")
+            except Exception as e:
+                if 'timeout' in str(e).lower():
+                    logger.warning(f"【{target_cookie_id}】页面刷新超时，使用降级策略...")
+                    await page.reload(wait_until='load', timeout=15000)
+                    logger.info(f"【{target_cookie_id}】页面刷新成功（降级策略）")
+                else:
+                    raise e
+            await asyncio.sleep(1)
+
+            # 获取更新后的真实Cookie
+            logger.info(f"【{target_cookie_id}】获取真实Cookie...")
+            updated_cookies = await context.cookies()
+
+            # 构造新的Cookie字典
+            real_cookies_dict = {}
+            for cookie in updated_cookies:
+                real_cookies_dict[cookie['name']] = cookie['value']
+
+            # 生成真实cookie字符串
+            real_cookies_str = '; '.join([f"{k}={v}" for k, v in real_cookies_dict.items()])
+
+            logger.info(f"【{target_cookie_id}】真实Cookie已获取，包含 {len(real_cookies_dict)} 个字段")
+
+            # 打印完整的真实Cookie内容
+            logger.info(f"【{target_cookie_id}】=== 完整真实Cookie内容 ===")
+            logger.info(f"【{target_cookie_id}】Cookie字符串长度: {len(real_cookies_str)}")
+            logger.info(f"【{target_cookie_id}】Cookie完整内容:")
+            logger.info(f"【{target_cookie_id}】{real_cookies_str}")
+
+            # 打印所有Cookie字段的详细信息
+            logger.info(f"【{target_cookie_id}】=== Cookie字段详细信息 ===")
+            for i, (name, value) in enumerate(real_cookies_dict.items(), 1):
+                # 对于长值，显示前后部分
+                if len(value) > 50:
+                    display_value = f"{value[:20]}...{value[-20:]}"
+                else:
+                    display_value = value
+                logger.info(f"【{target_cookie_id}】{i:2d}. {name}: {display_value}")
+
+            # 打印原始扫码Cookie对比
+            logger.info(f"【{target_cookie_id}】=== 扫码Cookie对比 ===")
+            logger.info(f"【{target_cookie_id}】扫码Cookie长度: {len(qr_cookies_str)}")
+            logger.info(f"【{target_cookie_id}】扫码Cookie字段数: {len(qr_cookies_dict)}")
+            logger.info(f"【{target_cookie_id}】真实Cookie长度: {len(real_cookies_str)}")
+            logger.info(f"【{target_cookie_id}】真实Cookie字段数: {len(real_cookies_dict)}")
+            logger.info(f"【{target_cookie_id}】长度增加: {len(real_cookies_str) - len(qr_cookies_str)} 字符")
+            logger.info(f"【{target_cookie_id}】字段增加: {len(real_cookies_dict) - len(qr_cookies_dict)} 个")
+
+            # 检查Cookie变化
+            changed_cookies = []
+            new_cookies = []
+            for name, new_value in real_cookies_dict.items():
+                old_value = qr_cookies_dict.get(name)
+                if old_value is None:
+                    new_cookies.append(name)
+                elif old_value != new_value:
+                    changed_cookies.append(name)
+
+            # 显示Cookie变化统计
+            if changed_cookies:
+                logger.info(f"【{target_cookie_id}】发生变化的Cookie字段 ({len(changed_cookies)}个): {', '.join(changed_cookies)}")
+            if new_cookies:
+                logger.info(f"【{target_cookie_id}】新增的Cookie字段 ({len(new_cookies)}个): {', '.join(new_cookies)}")
+            if not changed_cookies and not new_cookies:
+                logger.info(f"【{target_cookie_id}】Cookie无变化")
+
+            # 打印重要Cookie字段的完整详情
+            important_cookies = ['_m_h5_tk', '_m_h5_tk_enc', 'cookie2', 't', 'sgcookie', 'unb', 'uc1', 'uc3', 'uc4']
+            logger.info(f"【{target_cookie_id}】=== 重要Cookie字段完整详情 ===")
+            for cookie_name in important_cookies:
+                if cookie_name in real_cookies_dict:
+                    cookie_value = real_cookies_dict[cookie_name]
+
+                    # 标记是否发生了变化
+                    change_mark = " [已变化]" if cookie_name in changed_cookies else " [新增]" if cookie_name in new_cookies else " [无变化]"
+
+                    # 显示完整的cookie值
+                    logger.info(f"【{target_cookie_id}】{cookie_name}{change_mark}:")
+                    logger.info(f"【{target_cookie_id}】  值: {cookie_value}")
+                    logger.info(f"【{target_cookie_id}】  长度: {len(cookie_value)}")
+
+                    # 如果有对应的扫码cookie值，显示对比
+                    if cookie_name in qr_cookies_dict:
+                        old_value = qr_cookies_dict[cookie_name]
+                        if old_value != cookie_value:
+                            logger.info(f"【{target_cookie_id}】  原值: {old_value}")
+                            logger.info(f"【{target_cookie_id}】  原长度: {len(old_value)}")
+                    logger.info(f"【{target_cookie_id}】  ---")
+                else:
+                    logger.info(f"【{target_cookie_id}】{cookie_name}: [不存在]")
+
+            # 保存真实Cookie到数据库
+            from db_manager import db_manager
+            success = db_manager.save_cookie(target_cookie_id, real_cookies_str, target_user_id)
+
+            if success:
+                logger.info(f"【{target_cookie_id}】真实Cookie已成功保存到数据库")
+
+                # 如果当前实例的cookie_id匹配，更新实例的cookie信息
+                if target_cookie_id == self.cookie_id:
+                    self.cookies = real_cookies_dict
+                    self.cookies_str = real_cookies_str
+                    logger.info(f"【{target_cookie_id}】已更新当前实例的Cookie信息")
+
+                # 更新扫码登录Cookie刷新时间标志
+                self.last_qr_cookie_refresh_time = time.time()
+                logger.info(f"【{target_cookie_id}】已更新扫码登录Cookie刷新时间标志，_refresh_cookies_via_browser将等待{self.qr_cookie_refresh_cooldown//60}分钟后执行")
+
+                return True
+            else:
+                logger.error(f"【{target_cookie_id}】保存真实Cookie到数据库失败")
+                return False
+
+        except Exception as e:
+            logger.error(f"【{target_cookie_id}】使用扫码cookie获取真实cookie失败: {self._safe_str(e)}")
+            return False
+        finally:
+            # 确保资源清理
+            try:
+                if browser:
+                    await browser.close()
+                if playwright:
+                    await playwright.stop()
+            except Exception as cleanup_e:
+                logger.warning(f"【{target_cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
+
+    def reset_qr_cookie_refresh_flag(self):
+        """重置扫码登录Cookie刷新标志，允许立即执行_refresh_cookies_via_browser"""
+        self.last_qr_cookie_refresh_time = 0
+        logger.info(f"【{self.cookie_id}】已重置扫码登录Cookie刷新标志")
+
+    def get_qr_cookie_refresh_remaining_time(self) -> int:
+        """获取扫码登录Cookie刷新剩余冷却时间（秒）"""
+        current_time = time.time()
+        time_since_qr_refresh = current_time - self.last_qr_cookie_refresh_time
+        remaining_time = max(0, self.qr_cookie_refresh_cooldown - time_since_qr_refresh)
+        return int(remaining_time)
+
     async def _refresh_cookies_via_browser(self):
         """通过浏览器访问指定页面刷新Cookie"""
 
@@ -3545,6 +3937,19 @@ class XianyuLive:
         try:
             import asyncio
             from playwright.async_api import async_playwright
+
+            # 检查是否需要等待扫码登录Cookie刷新的冷却时间
+            current_time = time.time()
+            time_since_qr_refresh = current_time - self.last_qr_cookie_refresh_time
+
+            if time_since_qr_refresh < self.qr_cookie_refresh_cooldown:
+                remaining_time = self.qr_cookie_refresh_cooldown - time_since_qr_refresh
+                remaining_minutes = int(remaining_time // 60)
+                remaining_seconds = int(remaining_time % 60)
+
+                logger.info(f"【{self.cookie_id}】扫码登录Cookie刷新冷却中，还需等待 {remaining_minutes}分{remaining_seconds}秒")
+                logger.info(f"【{self.cookie_id}】跳过本次浏览器Cookie刷新")
+                return False
 
             logger.info(f"【{self.cookie_id}】开始通过浏览器刷新Cookie...")
             logger.info(f"【{self.cookie_id}】刷新前Cookie长度: {len(self.cookies_str)}")
@@ -3656,6 +4061,7 @@ class XianyuLive:
             )
 
             headers = DEFAULT_HEADERS.copy()
+
             # 创建浏览器上下文
             context_options = {
                 'user_agent': headers['user-agent'] or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
@@ -3814,9 +4220,10 @@ class XianyuLive:
             except Exception as cleanup_e:
                 logger.warning(f"【{self.cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
 
-    async def send_msg_once(self, toid, item_id, text):
 
+    async def send_msg_once(self, toid, item_id, text):
         _headers = DEFAULT_HEADERS.copy()
+
         headers = {
             "Cookie": self.cookies_str,
             "Host": "wss-goofish.dingtalk.com",
@@ -4341,21 +4748,21 @@ class XianyuLive:
 
                         # 提取订单ID
                         order_id = self._extract_order_id(message)
-                        if order_id:
-                            # 延迟2秒后执行免拼发货
-                            logger.info(f'[{msg_time}] 【{self.cookie_id}】延迟2秒后执行免拼发货...')
-                            await asyncio.sleep(2)
-                            # 调用自动免拼发货方法
-                            result = await self.auto_freeshipping(order_id, item_id, send_user_id)
-                            if result.get('success'):
-                                logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 自动免拼发货成功')
-                            else:
-                                logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {result.get("error", "未知错误")}')
-                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
-                                                           item_id, chat_id, msg_time)
-                            return
-                        else:
+                        if not order_id:
                             logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 未能提取到订单ID，无法执行免拼发货')
+                            return
+
+                        # 延迟2秒后执行免拼发货
+                        logger.info(f'[{msg_time}] 【{self.cookie_id}】延迟2秒后执行免拼发货...')
+                        await asyncio.sleep(2)
+                        # 调用自动免拼发货方法
+                        result = await self.auto_freeshipping(order_id, item_id, send_user_id)
+                        if result.get('success'):
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 自动免拼发货成功')
+                        else:
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {result.get("error", "未知错误")}')
+                        await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                       item_id, chat_id, msg_time)
                         return
                     else:
                         logger.info(f'[{msg_time}] 【{self.cookie_id}】收到卡片消息，标题: {card_title or "未知"}')
@@ -4590,6 +4997,10 @@ class XianyuLive:
             if self.cookie_refresh_task:
                 self.cookie_refresh_task.cancel()
             await self.close_session()  # 确保关闭session
+
+            # 从全局实例字典中注销当前实例
+            self._unregister_instance()
+            logger.info(f"【{self.cookie_id}】XianyuLive主程序已完全退出")
 
     async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0):
         """获取商品信息，自动处理token失效的情况

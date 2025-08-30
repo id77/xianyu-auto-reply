@@ -14,6 +14,8 @@ import os
 import uvicorn
 import pandas as pd
 import io
+import asyncio
+from collections import defaultdict
 
 import cookie_manager
 from db_manager import db_manager
@@ -22,6 +24,7 @@ from ai_reply_engine import ai_reply_engine
 from utils.qr_login import qr_login_manager
 from utils.xianyu_utils import trans_cookies
 from utils.image_utils import image_manager
+
 from loguru import logger
 
 # 关键字文件路径
@@ -36,7 +39,28 @@ TOKEN_EXPIRE_TIME = 24 * 60 * 60  # token过期时间：24小时
 # HTTP Bearer认证
 security = HTTPBearer(auto_error=False)
 
+# 扫码登录检查锁 - 防止并发处理同一个session
+qr_check_locks = defaultdict(lambda: asyncio.Lock())
+qr_check_processed = {}  # 记录已处理的session: {session_id: {'processed': bool, 'timestamp': float}}
+
 # 不再需要单独的密码初始化，由数据库初始化时处理
+
+
+def cleanup_qr_check_records():
+    """清理过期的扫码检查记录"""
+    current_time = time.time()
+    expired_sessions = []
+
+    for session_id, record in qr_check_processed.items():
+        # 清理超过1小时的记录
+        if current_time - record['timestamp'] > 3600:
+            expired_sessions.append(session_id)
+
+    for session_id in expired_sessions:
+        if session_id in qr_check_processed:
+            del qr_check_processed[session_id]
+        if session_id in qr_check_locks:
+            del qr_check_locks[session_id]
 
 
 def load_keywords() -> List[Tuple[str, str]]:
@@ -825,6 +849,146 @@ async def register(request: RegisterRequest):
         )
 
 
+# ------------------------- 发送消息接口 -------------------------
+
+# 固定的API秘钥（生产环境中应该从配置文件或环境变量读取）
+# 注意：现在从系统设置中读取QQ回复消息秘钥
+API_SECRET_KEY = "xianyu_api_secret_2024"  # 保留作为后备
+
+class SendMessageRequest(BaseModel):
+    api_key: str
+    cookie_id: str
+    chat_id: str
+    to_user_id: str
+    message: str
+
+
+class SendMessageResponse(BaseModel):
+    success: bool
+    message: str
+
+
+def verify_api_key(api_key: str) -> bool:
+    """验证API秘钥"""
+    try:
+        # 从系统设置中获取QQ回复消息秘钥
+        from db_manager import db_manager
+        qq_secret_key = db_manager.get_system_setting('qq_reply_secret_key')
+
+        # 如果系统设置中没有配置，使用默认值
+        if not qq_secret_key:
+            qq_secret_key = API_SECRET_KEY
+
+        return api_key == qq_secret_key
+    except Exception as e:
+        logger.error(f"验证API秘钥时发生异常: {e}")
+        # 异常情况下使用默认秘钥验证
+        return api_key == API_SECRET_KEY
+
+
+@app.post('/send-message', response_model=SendMessageResponse)
+async def send_message_api(request: SendMessageRequest):
+    """发送消息API接口（使用秘钥验证）"""
+    try:
+        # 清理所有参数中的换行符
+        def clean_param(param_str):
+            """清理参数中的换行符"""
+            if isinstance(param_str, str):
+                return param_str.replace('\\n', '').replace('\n', '')
+            return param_str
+
+        # 清理所有参数
+        cleaned_api_key = clean_param(request.api_key)
+        cleaned_cookie_id = clean_param(request.cookie_id)
+        cleaned_chat_id = clean_param(request.chat_id)
+        cleaned_to_user_id = clean_param(request.to_user_id)
+        cleaned_message = clean_param(request.message)
+
+        # 验证API秘钥不能为空
+        if not cleaned_api_key:
+            logger.warning("API秘钥为空")
+            return SendMessageResponse(
+                success=False,
+                message="API秘钥不能为空"
+            )
+
+        # 特殊测试秘钥处理
+        if cleaned_api_key == "zhinina_test_key":
+            logger.info("使用测试秘钥，直接返回成功")
+            return SendMessageResponse(
+                success=True,
+                message="接口验证成功"
+            )
+
+        # 验证API秘钥
+        if not verify_api_key(cleaned_api_key):
+            logger.warning(f"API秘钥验证失败: {cleaned_api_key}")
+            return SendMessageResponse(
+                success=False,
+                message="API秘钥验证失败"
+            )
+
+        # 验证必需参数不能为空
+        required_params = {
+            'cookie_id': cleaned_cookie_id,
+            'chat_id': cleaned_chat_id,
+            'to_user_id': cleaned_to_user_id,
+            'message': cleaned_message
+        }
+
+        for param_name, param_value in required_params.items():
+            if not param_value:
+                logger.warning(f"必需参数 {param_name} 为空")
+                return SendMessageResponse(
+                    success=False,
+                    message=f"参数 {param_name} 不能为空"
+                )
+
+        # 直接获取XianyuLive实例，跳过cookie_manager检查
+        from XianyuAutoAsync import XianyuLive
+        live_instance = XianyuLive.get_instance(cleaned_cookie_id)
+
+        if not live_instance:
+            logger.warning(f"账号实例不存在或未连接: {cleaned_cookie_id}")
+            return SendMessageResponse(
+                success=False,
+                message="账号实例不存在或未连接，请检查账号状态"
+            )
+
+        # 检查WebSocket连接状态
+        if not live_instance.ws or live_instance.ws.closed:
+            logger.warning(f"账号WebSocket连接已断开: {cleaned_cookie_id}")
+            return SendMessageResponse(
+                success=False,
+                message="账号WebSocket连接已断开，请等待重连"
+            )
+
+        # 发送消息（使用清理后的所有参数）
+        await live_instance.send_msg(
+            live_instance.ws,
+            cleaned_chat_id,
+            cleaned_to_user_id,
+            cleaned_message
+        )
+
+        logger.info(f"API成功发送消息: {cleaned_cookie_id} -> {cleaned_to_user_id}, 内容: {cleaned_message[:50]}{'...' if len(cleaned_message) > 50 else ''}")
+
+        return SendMessageResponse(
+            success=True,
+            message="消息发送成功"
+        )
+
+    except Exception as e:
+        # 使用清理后的参数记录日志
+        cookie_id_for_log = clean_param(request.cookie_id) if 'clean_param' in locals() else request.cookie_id
+        to_user_id_for_log = clean_param(request.to_user_id) if 'clean_param' in locals() else request.to_user_id
+        logger.error(f"API发送消息异常: {cookie_id_for_log} -> {to_user_id_for_log}, 错误: {str(e)}")
+        return SendMessageResponse(
+            success=False,
+            message=f"发送消息失败: {str(e)}"
+        )
+
+
 @app.post("/xianyu/reply", response_model=ResponseModel)
 async def xianyu_reply(req: RequestModel):
     msg_template = match_reply(req.cookie_id, req.send_message)
@@ -905,6 +1069,11 @@ class MessageNotificationIn(BaseModel):
 
 
 class SystemSettingIn(BaseModel):
+    value: str
+    description: Optional[str] = None
+
+
+class SystemSettingCreateIn(BaseModel):
     key: str
     value: str
     description: Optional[str] = None
@@ -1038,26 +1207,57 @@ async def generate_qr_code(current_user: Dict[str, Any] = Depends(get_current_us
 async def check_qr_code_status(session_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     """检查扫码登录状态"""
     try:
-        # 清理过期会话
-        qr_login_manager.cleanup_expired_sessions()
+        # 清理过期记录
+        cleanup_qr_check_records()
 
-        # 获取会话状态
-        status_info = qr_login_manager.get_session_status(session_id)
+        # 检查是否已经处理过
+        if session_id in qr_check_processed:
+            record = qr_check_processed[session_id]
+            if record['processed']:
+                log_with_user('debug', f"扫码登录session {session_id} 已处理过，直接返回", current_user)
+                # 返回简单的成功状态，避免重复处理
+                return {'status': 'already_processed', 'message': '该会话已处理完成'}
 
-        if status_info['status'] == 'success':
-            # 登录成功，处理Cookie
-            cookies_info = qr_login_manager.get_session_cookies(session_id)
-            if cookies_info:
-                account_info = await process_qr_login_cookies(
-                    cookies_info['cookies'],
-                    cookies_info['unb'],
-                    current_user
-                )
-                status_info['account_info'] = account_info
+        # 获取该session的锁
+        session_lock = qr_check_locks[session_id]
 
-                log_with_user('info', f"扫码登录成功处理完成: {session_id}, 账号: {account_info.get('account_id', 'unknown')}", current_user)
+        # 使用非阻塞方式尝试获取锁
+        if session_lock.locked():
+            log_with_user('debug', f"扫码登录session {session_id} 正在被其他请求处理，跳过", current_user)
+            return {'status': 'processing', 'message': '正在处理中，请稍候...'}
 
-        return status_info
+        async with session_lock:
+            # 再次检查是否已处理（双重检查）
+            if session_id in qr_check_processed and qr_check_processed[session_id]['processed']:
+                log_with_user('debug', f"扫码登录session {session_id} 在获取锁后发现已处理，直接返回", current_user)
+                return {'status': 'already_processed', 'message': '该会话已处理完成'}
+
+            # 清理过期会话
+            qr_login_manager.cleanup_expired_sessions()
+
+            # 获取会话状态
+            status_info = qr_login_manager.get_session_status(session_id)
+
+            if status_info['status'] == 'success':
+                # 登录成功，处理Cookie（现在包含获取真实cookie的逻辑）
+                cookies_info = qr_login_manager.get_session_cookies(session_id)
+                if cookies_info:
+                    account_info = await process_qr_login_cookies(
+                        cookies_info['cookies'],
+                        cookies_info['unb'],
+                        current_user
+                    )
+                    status_info['account_info'] = account_info
+
+                    log_with_user('info', f"扫码登录处理完成: {session_id}, 账号: {account_info.get('account_id', 'unknown')}", current_user)
+
+                    # 标记该session已处理
+                    qr_check_processed[session_id] = {
+                        'processed': True,
+                        'timestamp': time.time()
+                    }
+
+            return status_info
 
     except Exception as e:
         log_with_user('error', f"检查扫码登录状态异常: {str(e)}", current_user)
@@ -1065,7 +1265,7 @@ async def check_qr_code_status(session_id: str, current_user: Dict[str, Any] = D
 
 
 async def process_qr_login_cookies(cookies: str, unb: str, current_user: Dict[str, Any]) -> Dict[str, Any]:
-    """处理扫码登录获取的Cookie"""
+    """处理扫码登录获取的Cookie - 先获取真实cookie再保存到数据库"""
     try:
         user_id = current_user['user_id']
 
@@ -1083,20 +1283,11 @@ async def process_qr_login_cookies(cookies: str, unb: str, current_user: Dict[st
             except:
                 continue
 
+        # 确定账号ID
         if existing_account_id:
-            # 更新现有账号的Cookie
-            db_manager.save_cookie(existing_account_id, cookies, user_id)
-
-            # 更新cookie_manager中的Cookie
-            if cookie_manager.manager:
-                cookie_manager.manager.update_cookie(existing_account_id, cookies)
-
-            log_with_user('info', f"扫码登录更新现有账号Cookie: {existing_account_id}, UNB: {unb}", current_user)
-
-            return {
-                'account_id': existing_account_id,
-                'is_new_account': False
-            }
+            account_id = existing_account_id
+            is_new_account = False
+            log_with_user('info', f"扫码登录找到现有账号: {account_id}, UNB: {unb}", current_user)
         else:
             # 创建新账号，使用unb作为账号ID
             account_id = unb
@@ -1108,23 +1299,253 @@ async def process_qr_login_cookies(cookies: str, unb: str, current_user: Dict[st
                 account_id = f"{original_account_id}_{counter}"
                 counter += 1
 
-            # 保存新账号
-            db_manager.save_cookie(account_id, cookies, user_id)
+            is_new_account = True
+            log_with_user('info', f"扫码登录准备创建新账号: {account_id}, UNB: {unb}", current_user)
 
-            # 添加到cookie_manager
-            if cookie_manager.manager:
-                cookie_manager.manager.add_cookie(account_id, cookies)
+        # 第一步：使用扫码cookie获取真实cookie
+        log_with_user('info', f"开始使用扫码cookie获取真实cookie: {account_id}", current_user)
 
-            log_with_user('info', f"扫码登录创建新账号: {account_id}, UNB: {unb}", current_user)
+        try:
+            # 创建一个临时的XianyuLive实例来执行cookie刷新
+            from XianyuAutoAsync import XianyuLive
 
-            return {
-                'account_id': account_id,
-                'is_new_account': True
-            }
+            # 使用扫码登录的cookie创建临时实例
+            temp_instance = XianyuLive(
+                cookies_str=cookies,
+                cookie_id=account_id,
+                user_id=user_id
+            )
+
+            # 执行cookie刷新获取真实cookie
+            refresh_success = await temp_instance.refresh_cookies_from_qr_login(
+                qr_cookies_str=cookies,
+                cookie_id=account_id,
+                user_id=user_id
+            )
+
+            if refresh_success:
+                log_with_user('info', f"扫码登录真实cookie获取成功: {account_id}", current_user)
+
+                # 从数据库获取刚刚保存的真实cookie
+                updated_cookie_info = db_manager.get_cookie_by_id(account_id)
+                if updated_cookie_info:
+                    real_cookies = updated_cookie_info['cookies_str']
+                    log_with_user('info', f"已获取真实cookie，长度: {len(real_cookies)}", current_user)
+
+                    # 第二步：将真实cookie添加到cookie_manager（如果是新账号）或更新现有账号
+                    if cookie_manager.manager:
+                        if is_new_account:
+                            cookie_manager.manager.add_cookie(account_id, real_cookies)
+                            log_with_user('info', f"已将真实cookie添加到cookie_manager: {account_id}", current_user)
+                        else:
+                            cookie_manager.manager.update_cookie(account_id, real_cookies)
+                            log_with_user('info', f"已更新cookie_manager中的真实cookie: {account_id}", current_user)
+
+                    return {
+                        'account_id': account_id,
+                        'is_new_account': is_new_account,
+                        'real_cookie_refreshed': True,
+                        'cookie_length': len(real_cookies)
+                    }
+                else:
+                    log_with_user('error', f"无法从数据库获取真实cookie: {account_id}", current_user)
+                    # 降级处理：使用原始扫码cookie
+                    return await _fallback_save_qr_cookie(account_id, cookies, user_id, is_new_account, current_user, "无法从数据库获取真实cookie")
+            else:
+                log_with_user('warning', f"扫码登录真实cookie获取失败: {account_id}", current_user)
+                # 降级处理：使用原始扫码cookie
+                return await _fallback_save_qr_cookie(account_id, cookies, user_id, is_new_account, current_user, "真实cookie获取失败")
+
+        except Exception as refresh_e:
+            log_with_user('error', f"扫码登录真实cookie获取异常: {str(refresh_e)}", current_user)
+            # 降级处理：使用原始扫码cookie
+            return await _fallback_save_qr_cookie(account_id, cookies, user_id, is_new_account, current_user, f"获取真实cookie异常: {str(refresh_e)}")
 
     except Exception as e:
         log_with_user('error', f"处理扫码登录Cookie失败: {str(e)}", current_user)
         raise e
+
+
+async def _fallback_save_qr_cookie(account_id: str, cookies: str, user_id: int, is_new_account: bool, current_user: Dict[str, Any], error_reason: str) -> Dict[str, Any]:
+    """降级处理：当无法获取真实cookie时，保存原始扫码cookie"""
+    try:
+        log_with_user('warning', f"降级处理 - 保存原始扫码cookie: {account_id}, 原因: {error_reason}", current_user)
+
+        # 保存原始扫码cookie到数据库
+        if is_new_account:
+            db_manager.save_cookie(account_id, cookies, user_id)
+            log_with_user('info', f"降级处理 - 新账号原始cookie已保存: {account_id}", current_user)
+        else:
+            db_manager.save_cookie(account_id, cookies, user_id)
+            log_with_user('info', f"降级处理 - 现有账号原始cookie已更新: {account_id}", current_user)
+
+        # 添加到或更新cookie_manager
+        if cookie_manager.manager:
+            if is_new_account:
+                cookie_manager.manager.add_cookie(account_id, cookies)
+                log_with_user('info', f"降级处理 - 已将原始cookie添加到cookie_manager: {account_id}", current_user)
+            else:
+                cookie_manager.manager.update_cookie(account_id, cookies)
+                log_with_user('info', f"降级处理 - 已更新cookie_manager中的原始cookie: {account_id}", current_user)
+
+        return {
+            'account_id': account_id,
+            'is_new_account': is_new_account,
+            'real_cookie_refreshed': False,
+            'fallback_reason': error_reason,
+            'cookie_length': len(cookies)
+        }
+
+    except Exception as fallback_e:
+        log_with_user('error', f"降级处理失败: {str(fallback_e)}", current_user)
+        raise fallback_e
+
+
+@app.post("/qr-login/refresh-cookies")
+async def refresh_cookies_from_qr_login(
+    request: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """使用扫码登录获取的cookie访问指定界面获取真实cookie并存入数据库"""
+    try:
+        qr_cookies = request.get('qr_cookies')
+        cookie_id = request.get('cookie_id')
+
+        if not qr_cookies:
+            return {'success': False, 'message': '缺少扫码登录cookie'}
+
+        if not cookie_id:
+            return {'success': False, 'message': '缺少cookie_id'}
+
+        log_with_user('info', f"开始使用扫码cookie刷新真实cookie: {cookie_id}", current_user)
+
+        # 创建一个临时的XianyuLive实例来执行cookie刷新
+        from XianyuAutoAsync import XianyuLive
+
+        # 使用扫码登录的cookie创建临时实例
+        temp_instance = XianyuLive(
+            cookies_str=qr_cookies,
+            cookie_id=cookie_id,
+            user_id=current_user['user_id']
+        )
+
+        # 执行cookie刷新
+        success = await temp_instance.refresh_cookies_from_qr_login(
+            qr_cookies_str=qr_cookies,
+            cookie_id=cookie_id,
+            user_id=current_user['user_id']
+        )
+
+        if success:
+            log_with_user('info', f"扫码cookie刷新成功: {cookie_id}", current_user)
+
+            # 如果cookie_manager存在，更新其中的cookie
+            if cookie_manager.manager:
+                # 从数据库获取更新后的cookie
+                updated_cookie_info = db_manager.get_cookie_by_id(cookie_id)
+                if updated_cookie_info:
+                    cookie_manager.manager.update_cookie(cookie_id, updated_cookie_info['cookies_str'])
+                    log_with_user('info', f"已更新cookie_manager中的cookie: {cookie_id}", current_user)
+
+            return {
+                'success': True,
+                'message': '真实cookie获取并保存成功',
+                'cookie_id': cookie_id
+            }
+        else:
+            log_with_user('error', f"扫码cookie刷新失败: {cookie_id}", current_user)
+            return {'success': False, 'message': '获取真实cookie失败'}
+
+    except Exception as e:
+        log_with_user('error', f"扫码cookie刷新异常: {str(e)}", current_user)
+        return {'success': False, 'message': f'刷新cookie失败: {str(e)}'}
+
+
+@app.post("/qr-login/reset-cooldown/{cookie_id}")
+async def reset_qr_cookie_refresh_cooldown(
+    cookie_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """重置指定账号的扫码登录Cookie刷新冷却时间"""
+    try:
+        log_with_user('info', f"重置扫码登录Cookie刷新冷却时间: {cookie_id}", current_user)
+
+        # 检查cookie是否存在
+        cookie_info = db_manager.get_cookie_by_id(cookie_id)
+        if not cookie_info:
+            return {'success': False, 'message': '账号不存在'}
+
+        # 如果cookie_manager中有对应的实例，直接重置
+        if cookie_manager.manager and cookie_id in cookie_manager.manager.instances:
+            instance = cookie_manager.manager.instances[cookie_id]
+            remaining_time_before = instance.get_qr_cookie_refresh_remaining_time()
+            instance.reset_qr_cookie_refresh_flag()
+
+            log_with_user('info', f"已重置账号 {cookie_id} 的扫码登录冷却时间，原剩余时间: {remaining_time_before}秒", current_user)
+
+            return {
+                'success': True,
+                'message': '扫码登录Cookie刷新冷却时间已重置',
+                'cookie_id': cookie_id,
+                'previous_remaining_time': remaining_time_before
+            }
+        else:
+            # 如果没有活跃实例，返回成功（因为没有冷却时间需要重置）
+            log_with_user('info', f"账号 {cookie_id} 没有活跃实例，无需重置冷却时间", current_user)
+            return {
+                'success': True,
+                'message': '账号没有活跃实例，无需重置冷却时间',
+                'cookie_id': cookie_id
+            }
+
+    except Exception as e:
+        log_with_user('error', f"重置扫码登录冷却时间异常: {str(e)}", current_user)
+        return {'success': False, 'message': f'重置冷却时间失败: {str(e)}'}
+
+
+@app.get("/qr-login/cooldown-status/{cookie_id}")
+async def get_qr_cookie_refresh_cooldown_status(
+    cookie_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """获取指定账号的扫码登录Cookie刷新冷却状态"""
+    try:
+        # 检查cookie是否存在
+        cookie_info = db_manager.get_cookie_by_id(cookie_id)
+        if not cookie_info:
+            return {'success': False, 'message': '账号不存在'}
+
+        # 如果cookie_manager中有对应的实例，获取冷却状态
+        if cookie_manager.manager and cookie_id in cookie_manager.manager.instances:
+            instance = cookie_manager.manager.instances[cookie_id]
+            remaining_time = instance.get_qr_cookie_refresh_remaining_time()
+            cooldown_duration = instance.qr_cookie_refresh_cooldown
+            last_refresh_time = instance.last_qr_cookie_refresh_time
+
+            return {
+                'success': True,
+                'cookie_id': cookie_id,
+                'remaining_time': remaining_time,
+                'cooldown_duration': cooldown_duration,
+                'last_refresh_time': last_refresh_time,
+                'is_in_cooldown': remaining_time > 0,
+                'remaining_minutes': remaining_time // 60,
+                'remaining_seconds': remaining_time % 60
+            }
+        else:
+            return {
+                'success': True,
+                'cookie_id': cookie_id,
+                'remaining_time': 0,
+                'cooldown_duration': 600,  # 默认10分钟
+                'last_refresh_time': 0,
+                'is_in_cooldown': False,
+                'message': '账号没有活跃实例'
+            }
+
+    except Exception as e:
+        log_with_user('error', f"获取扫码登录冷却状态异常: {str(e)}", current_user)
+        return {'success': False, 'message': f'获取冷却状态失败: {str(e)}'}
 
 
 @app.put('/cookies/{cid}/status')
@@ -1502,7 +1923,32 @@ def get_registration_status():
         return {'enabled': True, 'message': '注册功能已开启'}  # 出错时默认开启
 
 
+@app.get('/login-info-status')
+def get_login_info_status():
+    """获取默认登录信息显示状态（公开接口，无需认证）"""
+    from db_manager import db_manager
+    try:
+        enabled_str = db_manager.get_system_setting('show_default_login_info')
+        logger.debug(f"从数据库获取的登录信息显示设置值: '{enabled_str}'")
+
+        # 如果设置不存在，默认为开启
+        if enabled_str is None:
+            enabled_bool = True
+        else:
+            enabled_bool = enabled_str == 'true'
+
+        return {"enabled": enabled_bool}
+    except Exception as e:
+        logger.error(f"获取登录信息显示状态失败: {e}")
+        # 出错时默认为开启
+        return {"enabled": True}
+
+
 class RegistrationSettingUpdate(BaseModel):
+    enabled: bool
+
+
+class LoginInfoSettingUpdate(BaseModel):
     enabled: bool
 
 
@@ -1532,6 +1978,31 @@ def update_registration_settings(setting_data: RegistrationSettingUpdate, admin_
         logger.error(f"更新注册设置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put('/login-info-settings')
+def update_login_info_settings(setting_data: LoginInfoSettingUpdate, admin_user: Dict[str, Any] = Depends(require_admin)):
+    """更新默认登录信息显示设置（仅管理员）"""
+    from db_manager import db_manager
+    try:
+        enabled = setting_data.enabled
+        success = db_manager.set_system_setting(
+            'show_default_login_info',
+            'true' if enabled else 'false',
+            '是否显示默认登录信息'
+        )
+        if success:
+            log_with_user('info', f"更新登录信息显示设置: {'开启' if enabled else '关闭'}", admin_user)
+            return {
+                'success': True,
+                'enabled': enabled,
+                'message': f"默认登录信息显示已{'开启' if enabled else '关闭'}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail='更新登录信息显示设置失败')
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新登录信息显示设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -1702,9 +2173,9 @@ def update_cookie_pause_duration(cid: str, update_data: PauseDurationUpdate, cur
         if cid not in user_cookies:
             raise HTTPException(status_code=403, detail="无权限操作该Cookie")
 
-        # 验证暂停时间范围（1-60分钟）
-        if not (1 <= update_data.pause_duration <= 60):
-            raise HTTPException(status_code=400, detail="暂停时间必须在1-60分钟之间")
+        # 验证暂停时间范围（0-60分钟，0表示不暂停）
+        if not (0 <= update_data.pause_duration <= 60):
+            raise HTTPException(status_code=400, detail="暂停时间必须在0-60分钟之间（0表示不暂停）")
 
         # 更新暂停时间
         success = db_manager.update_cookie_pause_duration(cid, update_data.pause_duration)
@@ -1882,12 +2353,40 @@ def update_keywords_with_item_id(cid: str, body: KeywordWithItemIdIn, current_us
             raise HTTPException(status_code=500, detail="保存关键词失败")
     except Exception as e:
         error_msg = str(e)
-        if "UNIQUE constraint failed" in error_msg:
-            # 解析具体的冲突信息
-            if "keywords.cookie_id, keywords.keyword" in error_msg:
-                raise HTTPException(status_code=400, detail="关键词重复！该关键词已存在（可能是图片关键词或文本关键词），请使用其他关键词")
+
+        # 检查是否是图片关键词冲突
+        if "已存在（图片关键词）" in error_msg:
+            # 直接使用数据库管理器提供的友好错误信息
+            raise HTTPException(status_code=400, detail=error_msg)
+        elif "UNIQUE constraint failed" in error_msg or "唯一约束冲突" in error_msg:
+            # 尝试从错误信息中提取具体的冲突关键词
+            conflict_keyword = None
+            conflict_type = None
+
+            # 检查是否是数据库管理器抛出的详细错误
+            if "关键词唯一约束冲突" in error_msg:
+                # 解析详细错误信息：关键词唯一约束冲突: Cookie=xxx, 关键词='xxx', 通用关键词/商品ID: xxx
+                import re
+                keyword_match = re.search(r"关键词='([^']+)'", error_msg)
+                if keyword_match:
+                    conflict_keyword = keyword_match.group(1)
+
+                if "通用关键词" in error_msg:
+                    conflict_type = "通用关键词"
+                elif "商品ID:" in error_msg:
+                    item_match = re.search(r"商品ID: ([^\s,]+)", error_msg)
+                    if item_match:
+                        conflict_type = f"商品关键词（商品ID: {item_match.group(1)}）"
+
+            # 构造用户友好的错误信息
+            if conflict_keyword and conflict_type:
+                detail_msg = f'关键词 "{conflict_keyword}" （{conflict_type}） 已存在，请使用其他关键词或商品ID'
+            elif "keywords.cookie_id, keywords.keyword" in error_msg:
+                detail_msg = "关键词重复！该关键词已存在（可能是图片关键词或文本关键词），请使用其他关键词"
             else:
-                raise HTTPException(status_code=400, detail="关键词重复！请使用不同的关键词或商品ID组合")
+                detail_msg = "关键词重复！请使用不同的关键词或商品ID组合"
+
+            raise HTTPException(status_code=400, detail=detail_msg)
         else:
             log_with_user('error', f"保存关键词时发生未知错误: {error_msg}", current_user)
             raise HTTPException(status_code=500, detail="保存关键词失败")
@@ -4000,6 +4499,43 @@ def update_item_multi_quantity_delivery(cookie_id: str, item_id: str, delivery_d
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+# ==================== 订单管理接口 ====================
+
+@app.get('/api/orders')
+def get_user_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取当前用户的订单信息"""
+    try:
+        from db_manager import db_manager
+
+        user_id = current_user['user_id']
+        log_with_user('info', "查询用户订单信息", current_user)
+
+        # 获取用户的所有Cookie
+        user_cookies = db_manager.get_all_cookies(user_id)
+
+        # 获取所有订单数据
+        all_orders = []
+        for cookie_id in user_cookies.keys():
+            orders = db_manager.get_orders_by_cookie(cookie_id, limit=1000)  # 增加限制数量
+            # 为每个订单添加cookie_id信息
+            for order in orders:
+                order['cookie_id'] = cookie_id
+                all_orders.append(order)
+
+        # 按创建时间倒序排列
+        all_orders.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        log_with_user('info', f"用户订单查询成功，共 {len(all_orders)} 条记录", current_user)
+        return {"success": True, "data": all_orders}
+
+    except Exception as e:
+        log_with_user('error', f"查询用户订单失败: {str(e)}", current_user)
+        raise HTTPException(status_code=500, detail=f"查询订单失败: {str(e)}")
 
 
 # 移除自动启动，由Start.py或手动启动

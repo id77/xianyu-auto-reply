@@ -155,7 +155,11 @@
             </h2>
             <p class="text-muted mb-0">系统概览和统计信息</p>
           </div>
-          <div class="version-info">
+          <div class="version-info d-flex gap-2">
+            <span class="badge bg-primary" id="projectUsers" style="cursor: pointer;" onclick="showProjectStats()" title="点击查看详细统计">
+              <i class="bi bi-people me-1"></i>
+              使用人数: <span id="totalUsers">加载中...</span>
+            </span>
             <span class="badge bg-secondary" id="systemVersion">
               <i class="bi bi-info-circle me-1"></i>
               版本: <span id="versionNumber">加载中...</span>
@@ -244,17 +248,17 @@
             <div class="row mb-4">
               <div class="col-12">
                 <div class="d-grid gap-2 d-md-flex justify-content-md-center">
-                  <button type="button" class="btn btn-success btn-lg me-md-2 flex-fill qr-login-btn" onclick="showQRCodeLogin()" style="max-width: 300px;">
+                  <button type="button" class="btn btn-lg me-md-2 flex-fill qr-login-btn" onclick="showQRCodeLogin()" style="max-width: 300px;">
                     <i class="bi bi-qr-code me-2"></i>
                     <span class="fw-bold">扫码登录</span>
                     <br>
-                    <small class="opacity-75">推荐方式，安全便捷</small>
+                    <small class="opacity-75">不推荐，一般都不成功</small>
                   </button>
                   <button type="button" class="btn btn-outline-secondary btn-lg flex-fill manual-input-btn" onclick="toggleManualInput()" style="max-width: 300px;">
                     <i class="bi bi-keyboard me-2"></i>
                     <span class="fw-bold">手动输入</span>
                     <br>
-                    <small class="opacity-75">输入Cookie信息</small>
+                    <small class="opacity-75">推荐方式，使用消息界面的cookie</small>
                   </button>
                 </div>
               </div>
@@ -319,7 +323,7 @@
                       <i class="bi bi-question-circle ms-1"
                          data-bs-toggle="tooltip"
                          data-bs-placement="top"
-                         title="检测到手动发出消息后，自动回复暂停的时间长度（分钟）。如果在暂停期间再次手动发出消息，会重新开始计时。"></i>
+                         title="检测到手动发出消息后，自动回复暂停的时间长度（分钟）。设置为0表示不暂停。如果在暂停期间再次手动发出消息，会重新开始计时。"></i>
                     </th>
                     <th style="width: 18%">操作</th>
                   </tr>
@@ -960,7 +964,7 @@
                         <th>商品关键字</th>
                         <th>匹配卡券</th>
                         <th>卡券类型</th>
-                        <th>发货数量</th>
+                        <!-- <th>发货数量</th> 隐藏发货数量列 -->
                         <th>状态</th>
                         <th>已发货次数</th>
                         <th>操作</th>
@@ -1562,6 +1566,94 @@
           </div>
         </div>
 
+        <!-- API安全设置 (仅管理员可见) -->
+        <div id="api-security-settings" class="row mt-4" style="display: none;">
+          <div class="col-md-12">
+            <div class="card">
+              <div class="card-header">
+                <i class="bi bi-shield-check me-2"></i>API安全设置
+                <span class="badge bg-warning ms-2">管理员专用</span>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <!-- QQ回复消息秘钥 -->
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label for="qqReplySecretKey" class="form-label">
+                        <i class="bi bi-key me-1"></i>
+                        <strong>QQ回复消息API秘钥</strong>
+                      </label>
+                      <div class="input-group">
+                        <input type="password" class="form-control" id="qqReplySecretKey"
+                               placeholder="请输入QQ回复消息API秘钥">
+                        <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('qqReplySecretKey')">
+                          <i class="bi bi-eye" id="qqReplySecretKey-icon"></i>
+                        </button>
+                      </div>
+                      <div class="form-text">
+                        <i class="bi bi-info-circle me-1"></i>
+                        用于验证 <code>/send-message</code> API接口的访问权限，确保只有授权的应用可以发送消息
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 秘钥操作 -->
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label class="form-label">
+                        <i class="bi bi-tools me-1"></i>
+                        <strong>秘钥管理</strong>
+                      </label>
+                      <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-success" onclick="generateRandomSecretKey()">
+                          <i class="bi bi-arrow-clockwise me-1"></i>生成随机秘钥
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="updateQQReplySecretKey()">
+                          <i class="bi bi-check-circle me-1"></i>保存秘钥
+                        </button>
+                      </div>
+                      <div class="form-text mt-2">
+                        <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
+                        修改秘钥后，所有使用该API的应用都需要更新配置
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 状态显示 -->
+                <div id="qqReplySecretStatus" class="mt-3" style="display: none;">
+                  <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <span id="qqReplySecretStatusText"></span>
+                  </div>
+                </div>
+
+                <!-- API使用说明 -->
+                <div class="mt-4">
+                  <h6 class="mb-3">
+                    <i class="bi bi-book me-2"></i>API使用说明
+                  </h6>
+                  <div class="bg-light p-3 rounded">
+                    <p class="mb-2"><strong>接口地址：</strong> <code>POST /send-message</code></p>
+                    <p class="mb-2"><strong>请求参数：</strong></p>
+                    <pre class="mb-2"><code>{
+  "api_key": "您的秘钥",
+  "cookie_id": "账号ID",
+  "chat_id": "聊天ID",
+  "to_user_id": "目标用户ID",
+  "message": "消息内容"
+}</code></pre>
+                    <p class="mb-0">
+                      <i class="bi bi-lightbulb me-1 text-warning"></i>
+                      <strong>提示：</strong>请妥善保管API秘钥，避免泄露给未授权的第三方
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 注册设置 (仅管理员可见) -->
         <div id="registration-settings" class="row mt-4" style="display: none;">
           <div class="col-md-6">
@@ -1590,6 +1682,39 @@
                   <div class="alert alert-info mb-0">
                     <i class="bi bi-info-circle me-2"></i>
                     <span id="registrationStatusText"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 默认登录信息设置 -->
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <i class="bi bi-info-circle me-2"></i>登录信息设置
+                <span class="badge bg-warning ms-2">管理员专用</span>
+              </div>
+              <div class="card-body">
+                <div class="mb-3">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="showDefaultLoginInfo">
+                    <label class="form-check-label" for="showDefaultLoginInfo">
+                      <strong>显示默认登录信息</strong>
+                    </label>
+                  </div>
+                  <div class="form-text">
+                    <i class="bi bi-info-circle me-1"></i>
+                    开启后，登录页面将显示默认的用户名和密码信息，方便用户快速登录
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="updateLoginInfoSettings()">
+                  <i class="bi bi-check-circle me-1"></i>保存设置
+                </button>
+                <div id="loginInfoStatus" class="mt-3" style="display: none;">
+                  <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <span id="loginInfoStatusText"></span>
                   </div>
                 </div>
               </div>
@@ -2656,11 +2781,8 @@
                 <option value="">请选择卡券</option>
               </select>
             </div>
-            <div class="mb-3">
-              <label class="form-label">发货数量</label>
-              <input type="number" class="form-control" id="deliveryCount" value="1" min="1" max="10">
-              <small class="form-text text-muted">每次发货的数量</small>
-            </div>
+            <!-- 隐藏发货数量字段，默认为1 -->
+            <input type="hidden" id="deliveryCount" value="1">
             <div class="mb-3">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="ruleEnabled" checked>
@@ -2708,11 +2830,8 @@
                 <option value="">请选择卡券</option>
               </select>
             </div>
-            <div class="mb-3">
-              <label class="form-label">发货数量</label>
-              <input type="number" class="form-control" id="editDeliveryCount" value="1" min="1" max="10">
-              <small class="form-text text-muted">每次发货的数量</small>
-            </div>
+            <!-- 隐藏发货数量字段，默认为1 -->
+            <input type="hidden" id="editDeliveryCount" value="1">
             <div class="mb-3">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="editRuleEnabled">
