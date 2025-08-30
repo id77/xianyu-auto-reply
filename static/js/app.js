@@ -10405,8 +10405,3 @@ async function showUpdateInfo(newVersion) {
     modal.show();
 }
 
-
-    modal.show();
-}
-
-
