@@ -1857,7 +1857,7 @@ class XianyuLive:
             system_messages = [
                 '发来一条消息',
                 '发来一条新消息',
-                '设置不砍价恢复回复'
+                '设置不砍价回复'
             ]
 
             if send_message in system_messages:
