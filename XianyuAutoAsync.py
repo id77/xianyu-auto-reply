@@ -1856,7 +1856,8 @@ class XianyuLive:
             # 过滤系统默认消息，不发送通知
             system_messages = [
                 '发来一条消息',
-                '发来一条新消息'
+                '发来一条新消息',
+                '设置不砍价恢复回复'
             ]
 
             if send_message in system_messages:
