@@ -622,3 +622,4 @@ checkpoints/
 # 项目特定排除（明确列出不需要跟踪的文件）
 check_silent_mode.py
 order_status_handler.py
+*.har
