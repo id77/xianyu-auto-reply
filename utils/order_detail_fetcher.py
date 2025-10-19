@@ -103,9 +103,9 @@ class OrderDetailFetcher:
                 '--no-pings'
             ]
 
-            # 只在Docker环境中使用单进程模式
-            if os.getenv('DOCKER_ENV'):
-                browser_args.append('--single-process')
+            # 移除--single-process参数，使用多进程模式提高稳定性
+            # if os.getenv('DOCKER_ENV'):
+            #     browser_args.append('--single-process')  # 注释掉，避免崩溃
 
             # 在Docker环境中添加额外参数
             if os.getenv('DOCKER_ENV'):
@@ -124,7 +124,18 @@ class OrderDetailFetcher:
                     '--safebrowsing-disable-auto-update',
                     '--enable-automation',
                     '--password-store=basic',
-                    '--use-mock-keychain'
+                    '--use-mock-keychain',
+                    # 添加内存优化和稳定性参数
+                    '--memory-pressure-off',
+                    '--max_old_space_size=512',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+                    '--disable-logging',
+                    '--disable-permissions-api',
+                    '--disable-notifications',
+                    '--no-pings',
+                    '--no-zygote'
                 ])
 
             logger.info(f"启动浏览器，参数: {browser_args}")

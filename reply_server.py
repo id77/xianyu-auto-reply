@@ -1171,13 +1171,106 @@ def update_cookie(cid: str, item: CookieIn, current_user: Dict[str, Any] = Depen
         if cid not in user_cookies:
             raise HTTPException(status_code=403, detail="无权限操作该Cookie")
 
-        # 更新cookie时保持用户绑定
-        db_manager.save_cookie(cid, item.value, user_id)
-        cookie_manager.manager.update_cookie(cid, item.value)
+        # 获取旧的 cookie 值，用于判断是否需要重启任务
+        old_cookie_details = db_manager.get_cookie_details(cid)
+        old_cookie_value = old_cookie_details.get('value') if old_cookie_details else None
+
+        # 使用 update_cookie_account_info 更新（只更新cookie值，不覆盖其他字段）
+        success = db_manager.update_cookie_account_info(cid, cookie_value=item.value)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="更新Cookie失败")
+        
+        # 只有当 cookie 值真的发生变化时才重启任务
+        if item.value != old_cookie_value:
+            logger.info(f"Cookie值已变化，重启任务: {cid}")
+            cookie_manager.manager.update_cookie(cid, item.value, save_to_db=False)
+        else:
+            logger.info(f"Cookie值未变化，无需重启任务: {cid}")
+        
         return {'msg': 'updated'}
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class CookieAccountInfo(BaseModel):
+    """账号信息更新模型"""
+    value: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    show_browser: Optional[bool] = None
+
+
+@app.post("/cookie/{cid}/account-info")
+def update_cookie_account_info(cid: str, info: CookieAccountInfo, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """更新账号信息（Cookie、用户名、密码、显示浏览器设置）"""
+    if cookie_manager.manager is None:
+        raise HTTPException(status_code=500, detail='CookieManager 未就绪')
+    try:
+        # 检查cookie是否属于当前用户
+        user_id = current_user['user_id']
+        from db_manager import db_manager
+        user_cookies = db_manager.get_all_cookies(user_id)
+
+        if cid not in user_cookies:
+            raise HTTPException(status_code=403, detail="无权限操作该Cookie")
+
+        # 获取旧的 cookie 值，用于判断是否需要重启任务
+        old_cookie_details = db_manager.get_cookie_details(cid)
+        old_cookie_value = old_cookie_details.get('value') if old_cookie_details else None
+        
+        # 更新数据库
+        success = db_manager.update_cookie_account_info(
+            cid, 
+            cookie_value=info.value,
+            username=info.username,
+            password=info.password,
+            show_browser=info.show_browser
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="更新账号信息失败")
+        
+        # 只有当 cookie 值真的发生变化时才重启任务
+        if info.value is not None and info.value != old_cookie_value:
+            logger.info(f"Cookie值已变化，重启任务: {cid}")
+            cookie_manager.manager.update_cookie(cid, info.value, save_to_db=False)
+        else:
+            logger.info(f"Cookie值未变化，无需重启任务: {cid}")
+        
+        return {'msg': 'updated', 'success': True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新账号信息失败: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/cookie/{cid}/details")
+def get_cookie_account_details(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取账号详细信息（包括用户名、密码、显示浏览器设置）"""
+    try:
+        # 检查cookie是否属于当前用户
+        user_id = current_user['user_id']
+        from db_manager import db_manager
+        user_cookies = db_manager.get_all_cookies(user_id)
+
+        if cid not in user_cookies:
+            raise HTTPException(status_code=403, detail="无权限操作该Cookie")
+
+        # 获取详细信息
+        details = db_manager.get_cookie_details(cid)
+        
+        if not details:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        
+        return details
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取账号详情失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -1338,7 +1431,8 @@ async def process_qr_login_cookies(cookies: str, unb: str, current_user: Dict[st
                             cookie_manager.manager.add_cookie(account_id, real_cookies)
                             log_with_user('info', f"已将真实cookie添加到cookie_manager: {account_id}", current_user)
                         else:
-                            cookie_manager.manager.update_cookie(account_id, real_cookies)
+                            # refresh_cookies_from_qr_login 已经保存到数据库了，这里不需要再保存
+                            cookie_manager.manager.update_cookie(account_id, real_cookies, save_to_db=False)
                             log_with_user('info', f"已更新cookie_manager中的真实cookie: {account_id}", current_user)
 
                     return {
@@ -1376,7 +1470,8 @@ async def _fallback_save_qr_cookie(account_id: str, cookies: str, user_id: int, 
             db_manager.save_cookie(account_id, cookies, user_id)
             log_with_user('info', f"降级处理 - 新账号原始cookie已保存: {account_id}", current_user)
         else:
-            db_manager.save_cookie(account_id, cookies, user_id)
+            # 现有账号使用 update_cookie_account_info 避免覆盖其他字段
+            db_manager.update_cookie_account_info(account_id, cookie_value=cookies)
             log_with_user('info', f"降级处理 - 现有账号原始cookie已更新: {account_id}", current_user)
 
         # 添加到或更新cookie_manager
@@ -1385,7 +1480,8 @@ async def _fallback_save_qr_cookie(account_id: str, cookies: str, user_id: int, 
                 cookie_manager.manager.add_cookie(account_id, cookies)
                 log_with_user('info', f"降级处理 - 已将原始cookie添加到cookie_manager: {account_id}", current_user)
             else:
-                cookie_manager.manager.update_cookie(account_id, cookies)
+                # update_cookie_account_info 已经保存到数据库了，这里不需要再保存
+                cookie_manager.manager.update_cookie(account_id, cookies, save_to_db=False)
                 log_with_user('info', f"降级处理 - 已更新cookie_manager中的原始cookie: {account_id}", current_user)
 
         return {
@@ -1444,7 +1540,8 @@ async def refresh_cookies_from_qr_login(
                 # 从数据库获取更新后的cookie
                 updated_cookie_info = db_manager.get_cookie_by_id(cookie_id)
                 if updated_cookie_info:
-                    cookie_manager.manager.update_cookie(cookie_id, updated_cookie_info['cookies_str'])
+                    # refresh_cookies_from_qr_login 已经保存到数据库了，这里不需要再保存
+                    cookie_manager.manager.update_cookie(cookie_id, updated_cookie_info['cookies_str'], save_to_db=False)
                     log_with_user('info', f"已更新cookie_manager中的cookie: {cookie_id}", current_user)
 
             return {
@@ -3636,6 +3733,64 @@ async def get_logs(lines: int = 200, level: str = None, source: str = None, _: N
         return {"success": False, "message": f"获取日志失败: {str(e)}", "logs": []}
 
 
+@app.get("/risk-control-logs")
+async def get_risk_control_logs(
+    cookie_id: str = None,
+    limit: int = 100,
+    offset: int = 0,
+    admin_user: Dict[str, Any] = Depends(require_admin)
+):
+    """获取风控日志（管理员专用）"""
+    try:
+        log_with_user('info', f"查询风控日志: cookie_id={cookie_id}, limit={limit}, offset={offset}", admin_user)
+
+        # 获取风控日志
+        logs = db_manager.get_risk_control_logs(cookie_id=cookie_id, limit=limit, offset=offset)
+        total_count = db_manager.get_risk_control_logs_count(cookie_id=cookie_id)
+
+        log_with_user('info', f"风控日志查询成功，共 {len(logs)} 条记录，总计 {total_count} 条", admin_user)
+
+        return {
+            "success": True,
+            "data": logs,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except Exception as e:
+        log_with_user('error', f"获取风控日志失败: {str(e)}", admin_user)
+        return {
+            "success": False,
+            "message": f"获取风控日志失败: {str(e)}",
+            "data": [],
+            "total": 0
+        }
+
+
+@app.delete("/risk-control-logs/{log_id}")
+async def delete_risk_control_log(
+    log_id: int,
+    admin_user: Dict[str, Any] = Depends(require_admin)
+):
+    """删除风控日志记录（管理员专用）"""
+    try:
+        log_with_user('info', f"删除风控日志记录: {log_id}", admin_user)
+
+        success = db_manager.delete_risk_control_log(log_id)
+
+        if success:
+            log_with_user('info', f"风控日志删除成功: {log_id}", admin_user)
+            return {"success": True, "message": "删除成功"}
+        else:
+            log_with_user('warning', f"风控日志删除失败: {log_id}", admin_user)
+            return {"success": False, "message": "删除失败，记录可能不存在"}
+
+    except Exception as e:
+        log_with_user('error', f"删除风控日志失败: {log_id} - {str(e)}", admin_user)
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+
 @app.get("/logs/stats")
 async def get_log_stats(_: None = Depends(require_auth)):
     """获取日志统计信息"""
@@ -3887,6 +4042,85 @@ def delete_user(user_id: int, admin_user: Dict[str, Any] = Depends(require_admin
     except Exception as e:
         log_with_user('error', f"删除用户异常: {str(e)}", admin_user)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/admin/risk-control-logs')
+async def get_admin_risk_control_logs(
+    cookie_id: str = None,
+    limit: int = 100,
+    offset: int = 0,
+    admin_user: Dict[str, Any] = Depends(require_admin)
+):
+    """获取风控日志（管理员专用）"""
+    try:
+        log_with_user('info', f"查询风控日志: cookie_id={cookie_id}, limit={limit}, offset={offset}", admin_user)
+
+        # 获取风控日志
+        logs = db_manager.get_risk_control_logs(cookie_id=cookie_id, limit=limit, offset=offset)
+        total_count = db_manager.get_risk_control_logs_count(cookie_id=cookie_id)
+
+        log_with_user('info', f"风控日志查询成功，共 {len(logs)} 条记录，总计 {total_count} 条", admin_user)
+
+        return {
+            "success": True,
+            "data": logs,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except Exception as e:
+        log_with_user('error', f"查询风控日志失败: {str(e)}", admin_user)
+        return {"success": False, "message": f"查询失败: {str(e)}", "data": [], "total": 0}
+
+
+@app.get('/admin/cookies')
+def get_admin_cookies(admin_user: Dict[str, Any] = Depends(require_admin)):
+    """获取所有Cookie信息（管理员专用）"""
+    try:
+        log_with_user('info', "查询所有Cookie信息", admin_user)
+
+        if cookie_manager.manager is None:
+            return {
+                "success": True,
+                "cookies": [],
+                "message": "CookieManager 未就绪"
+            }
+
+        # 获取所有用户的cookies
+        from db_manager import db_manager
+        all_users = db_manager.get_all_users()
+        all_cookies = []
+
+        for user in all_users:
+            user_id = user['id']
+            user_cookies = db_manager.get_all_cookies(user_id)
+            for cookie_id, cookie_value in user_cookies.items():
+                # 获取cookie详细信息
+                cookie_details = db_manager.get_cookie_details(cookie_id)
+                cookie_info = {
+                    'cookie_id': cookie_id,
+                    'user_id': user_id,
+                    'username': user['username'],
+                    'nickname': cookie_details.get('remark', '') if cookie_details else '',
+                    'enabled': cookie_manager.manager.get_cookie_status(cookie_id)
+                }
+                all_cookies.append(cookie_info)
+
+        log_with_user('info', f"获取到 {len(all_cookies)} 个Cookie", admin_user)
+        return {
+            "success": True,
+            "cookies": all_cookies,
+            "total": len(all_cookies)
+        }
+
+    except Exception as e:
+        log_with_user('error', f"获取Cookie信息失败: {str(e)}", admin_user)
+        return {
+            "success": False,
+            "cookies": [],
+            "message": f"获取失败: {str(e)}"
+        }
+
 
 @app.get('/admin/logs')
 def get_system_logs(admin_user: Dict[str, Any] = Depends(require_admin),
@@ -4432,7 +4666,8 @@ def clear_table_data(table_name: str, admin_user: Dict[str, Any] = Depends(requi
             'cookies', 'cookie_status', 'keywords', 'default_replies', 'default_reply_records',
             'ai_reply_settings', 'ai_conversations', 'ai_item_cache', 'item_info',
             'message_notifications', 'cards', 'delivery_rules', 'notification_channels',
-            'user_settings', 'system_settings', 'email_verifications', 'captcha_codes', 'orders', "item_replay"
+            'user_settings', 'system_settings', 'email_verifications', 'captcha_codes', 'orders', 'item_replay',
+            'risk_control_logs'
         ]
 
         # 不允许清空用户表

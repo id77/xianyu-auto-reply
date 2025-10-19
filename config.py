@@ -93,10 +93,14 @@ COOKIES_STR = config.get('COOKIES.value', '')
 COOKIES_LAST_UPDATE = config.get('COOKIES.last_update_time', '')
 WEBSOCKET_URL = config.get('WEBSOCKET_URL', 'wss://wss-goofish.dingtalk.com/')
 HEARTBEAT_INTERVAL = config.get('HEARTBEAT_INTERVAL', 15)
-HEARTBEAT_TIMEOUT = config.get('HEARTBEAT_TIMEOUT', 5)
-TOKEN_REFRESH_INTERVAL = config.get('TOKEN_REFRESH_INTERVAL', 3600)
-TOKEN_RETRY_INTERVAL = config.get('TOKEN_RETRY_INTERVAL', 300)
+HEARTBEAT_TIMEOUT = config.get('HEARTBEAT_TIMEOUT', 30)
+TOKEN_REFRESH_INTERVAL = config.get('TOKEN_REFRESH_INTERVAL', 72000)
+TOKEN_RETRY_INTERVAL = config.get('TOKEN_RETRY_INTERVAL', 7200)
 MESSAGE_EXPIRE_TIME = config.get('MESSAGE_EXPIRE_TIME', 300000)
+SLIDER_VERIFICATION = config.get('SLIDER_VERIFICATION', {
+    'max_concurrent': 3,
+    'wait_timeout': 60
+})
 API_ENDPOINTS = config.get('API_ENDPOINTS', {})
 DEFAULT_HEADERS = config.get('DEFAULT_HEADERS', {})
 WEBSOCKET_HEADERS = config.get('WEBSOCKET_HEADERS', {})
@@ -118,4 +122,4 @@ if isinstance(_cookies_raw, list):
 else:
     # 兼容旧格式，仅有 value 字段
     val = _cookies_raw.get('value') if isinstance(_cookies_raw, dict) else None
-    COOKIES_LIST = [{'id': 'default', 'value': val}] if val else [] 
+    COOKIES_LIST = [{'id': 'default', 'value': val}] if val else []

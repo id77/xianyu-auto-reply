@@ -115,6 +115,12 @@
           </a>
         </div>
         <div class="nav-item">
+          <a href="#" class="nav-link" onclick="showSection('risk-control-logs')">
+            <i class="bi bi-shield-exclamation"></i>
+            风控日志
+          </a>
+        </div>
+        <div class="nav-item">
           <a href="#" class="nav-link" onclick="showSection('data-management')">
             <i class="bi bi-database"></i>
             数据管理
@@ -252,13 +258,13 @@
                     <i class="bi bi-qr-code me-2"></i>
                     <span class="fw-bold">扫码登录</span>
                     <br>
-                    <small class="opacity-75">不推荐，一般都不成功</small>
+                    <small class="opacity-75">推荐方式</small>
                   </button>
                   <button type="button" class="btn btn-outline-secondary btn-lg flex-fill manual-input-btn" onclick="toggleManualInput()" style="max-width: 300px;">
                     <i class="bi bi-keyboard me-2"></i>
                     <span class="fw-bold">手动输入</span>
                     <br>
-                    <small class="opacity-75">推荐方式，使用消息界面的cookie</small>
+                    <small class="opacity-75">使用消息界面的cookie</small>
                   </button>
                 </div>
               </div>
@@ -636,7 +642,9 @@
               <option value="">所有状态</option>
               <option value="processing">处理中</option>
               <option value="processed">已处理</option>
+              <option value="shipped">已发货</option>
               <option value="completed">已完成</option>
+              <option value="cancelled">已关闭</option>
               <option value="unknown">未知</option>
             </select>
           </div>
@@ -1079,6 +1087,23 @@
               </div>
 
               <div class="col-sm-6 col-md-4 col-lg-3 col-xl-2">
+                <div class="card h-100 channel-type-card" onclick="showAddChannelModal('bark')">
+                  <div class="card-body text-center">
+                    <div class="channel-icon">
+                      <i class="bi bi-phone-fill text-dark"></i>
+                    </div>
+                    <h6 class="card-title">Bark通知</h6>
+                    <p class="card-text text-muted">iOS推送通知</p>
+                    <div class="mt-auto">
+                      <button class="btn btn-outline-dark btn-sm">
+                        <i class="bi bi-plus-circle me-1"></i>配置
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-sm-6 col-md-4 col-lg-3 col-xl-2">
                 <div class="card h-100 channel-type-card" onclick="showAddChannelModal('email')">
                   <div class="card-body text-center">
                     <div class="channel-icon">
@@ -1129,23 +1154,6 @@
                 </div>
               </div>
 
-              <div class="col-sm-6 col-md-4 col-lg-3 col-xl-2">
-                <div class="card h-100 channel-type-card" onclick="showAddChannelModal('bark')">
-                  <div class="card-body text-center">
-                    <div class="channel-icon">
-                      <i class="bi bi-bootstrap text-success"></i>
-                    </div>
-                    <h6 class="card-title">Bark通知</h6>
-                    <p class="card-text text-muted">Bark推送服务</p>
-                    <div class="mt-auto">
-                      <button class="btn btn-outline-success btn-sm">
-                        <i class="bi bi-plus-circle me-1"></i>配置
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
               <div class="col-sm-6 col-md-4 col-lg-3 col-xl-2">
                 <div class="card h-100 channel-type-card" onclick="showAddChannelModal('telegram')">
                   <div class="card-body text-center">
@@ -1361,6 +1369,131 @@
               <p class="mt-2 text-muted">暂无日志数据</p>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 风控日志内容 -->
+    <div id="risk-control-logs-section" class="content-section">
+      <div class="content-header">
+        <h2 class="mb-0">
+          <i class="bi bi-shield-exclamation me-2"></i>
+          风控日志
+        </h2>
+        <p class="text-muted mb-0">查看滑块验证等风控事件的处理记录</p>
+      </div>
+
+      <div class="content-body">
+        <!-- 风控日志控制面板 -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <h5 class="mb-0">
+              <i class="bi bi-funnel me-2"></i>
+              筛选条件
+            </h5>
+          </div>
+          <div class="card-body">
+            <div class="row align-items-center">
+              <div class="col-md-4">
+                <label class="form-label">账号筛选</label>
+                <select class="form-select" id="riskLogCookieFilter" onchange="loadRiskControlLogs()">
+                  <option value="">全部账号</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">显示数量</label>
+                <select class="form-select" id="riskLogLimit" onchange="loadRiskControlLogs()">
+                  <option value="50">50条</option>
+                  <option value="100" selected>100条</option>
+                  <option value="200">200条</option>
+                  <option value="500">500条</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">处理状态</label>
+                <div class="d-flex gap-2 flex-wrap">
+                  <span class="badge bg-secondary filter-badge active" data-status="" onclick="filterRiskLogsByStatus('')">
+                    全部
+                  </span>
+                  <span class="badge bg-warning filter-badge" data-status="processing" onclick="filterRiskLogsByStatus('processing')">
+                    处理中
+                  </span>
+                  <span class="badge bg-success filter-badge" data-status="success" onclick="filterRiskLogsByStatus('success')">
+                    成功
+                  </span>
+                  <span class="badge bg-danger filter-badge" data-status="failed" onclick="filterRiskLogsByStatus('failed')">
+                    失败
+                  </span>
+                </div>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">&nbsp;</label>
+                <div class="d-grid">
+                  <button class="btn btn-primary" onclick="loadRiskControlLogs()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 风控日志列表 -->
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+              <i class="bi bi-list-ul me-2"></i>
+              风控日志记录
+            </h5>
+            <div class="d-flex gap-2">
+              <span id="riskLogCount" class="badge bg-info">总计: 0 条</span>
+              <button class="btn btn-sm btn-outline-danger" onclick="clearRiskControlLogs()" title="清空日志">
+                <i class="bi bi-trash"></i> 清空
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="loadingRiskLogs" class="text-center py-4">
+              <div class="spinner-border" role="status">
+                <span class="visually-hidden">加载中...</span>
+              </div>
+              <p class="mt-2">正在加载风控日志...</p>
+            </div>
+            <div id="riskLogContainer" style="display: none;">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th width="120">时间</th>
+                      <th width="100">账号</th>
+                      <th width="100">事件类型</th>
+                      <th width="80">状态</th>
+                      <th>事件描述</th>
+                      <th>处理结果</th>
+                      <th width="80">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="riskLogTableBody">
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div id="noRiskLogs" class="text-center py-4" style="display: none;">
+              <i class="bi bi-shield-exclamation" style="font-size: 3rem; color: #ccc;"></i>
+              <p class="mt-2 text-muted">暂无风控日志数据</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分页控件 -->
+        <div class="d-flex justify-content-between align-items-center mt-3">
+          <div class="text-muted">
+            <span id="riskLogPaginationInfo">显示第 0-0 条，共 0 条记录</span>
+          </div>
+          <nav>
+            <ul class="pagination pagination-sm mb-0" id="riskLogPagination">
+            </ul>
+          </nav>
         </div>
       </div>
     </div>
@@ -3359,6 +3492,74 @@
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
           <button type="button" class="btn btn-danger" onclick="confirmDeleteRecord()">
             <i class="bi bi-trash"></i> 确认删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 账号编辑模态框 -->
+  <div class="modal fade" id="accountEditModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-pencil-square me-2"></i>
+            编辑账号信息 - <span id="editAccountIdDisplay"></span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="accountEditForm">
+            <input type="hidden" id="editAccountId">
+            
+            <div class="mb-3">
+              <label class="form-label">Cookie <span class="text-danger">*</span></label>
+              <textarea class="form-control" id="editAccountCookie" rows="3" placeholder="输入Cookie值" required></textarea>
+              <div class="form-text">账号的Cookie值，用于身份认证</div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">用户名</label>
+              <input type="text" class="form-control" id="editAccountUsername" placeholder="输入用户名（可选）">
+              <div class="form-text">用于密码登录的用户名</div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">密码</label>
+              <input type="password" class="form-control" id="editAccountPassword" placeholder="输入密码（可选）">
+              <div class="form-text">用于密码登录的密码</div>
+            </div>
+            
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="editAccountShowBrowser">
+                <label class="form-check-label" for="editAccountShowBrowser">
+                  显示浏览器
+                  <i class="bi bi-info-circle text-info ms-1" data-bs-toggle="tooltip" title="使用用户名密码登录的时候浏览器可见，仅限Windows源码部署打开该开关"></i>
+                </label>
+              </div>
+              <div class="form-text text-warning">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                使用用户名密码登录的时候浏览器可见，仅限Windows源码部署打开该开关，开关打开密码登录会停留5分钟，防止第一次登录需要人脸，成功一次之后后续可关闭开关
+              </div>
+            </div>
+            
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle me-2"></i>
+              <strong>提示：</strong>
+              <ul class="mb-0 mt-2">
+                <li>Cookie是必填项，其他字段可选</li>
+                <li>配置用户名和密码后，系统可自动通过密码登录刷新Cookie</li>
+                <li>使用用户名密码登录的时候浏览器可见，仅限Windows源码部署打开该开关，开关打开密码登录会停留5分钟，防止第一次登录需要人脸，成功一次之后后续可关闭开关</li>
+              </ul>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" class="btn btn-primary" onclick="saveAccountEdit()">
+            <i class="bi bi-check-lg me-1"></i>保存
           </button>
         </div>
       </div>

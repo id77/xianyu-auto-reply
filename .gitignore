@@ -286,72 +286,6 @@ build/
 *.dmg
 *.img
 
-# ==================== 项目特定新增文件类型 ====================
-# 测试和示例文件
-test_*.py
-*_test.py
-test_*.html
-*_test.html
-test_*.js
-*_test.js
-example_*.py
-*_example.py
-demo_*.py
-*_demo.py
-fix_*.py
-*_fix.py
-sample_*.py
-*_sample.py
-mock_*.py
-*_mock.py
-debug_*.py
-*_debug.py
-
-# 测试相关目录
-tests/
-test/
-testing/
-__tests__/
-spec/
-specs/
-
-# 测试配置文件
-pytest.ini
-.pytest_cache/
-test_*.ini
-*_test.ini
-test_*.conf
-*_test.conf
-
-# 测试数据文件
-test_*.json
-*_test.json
-test_*.csv
-*_test.csv
-test_*.xml
-*_test.xml
-test_*.xlsx
-*_test.xlsx
-test_*.txt
-*_test.txt
-
-# 测试输出文件
-test_output/
-test_results/
-test_reports/
-coverage_html/
-.coverage
-coverage.xml
-htmlcov/
-
-# 性能测试文件
-benchmark_*.py
-*_benchmark.py
-perf_*.py
-*_perf.py
-load_test_*.py
-*_load_test.py
-
 # 文档文件（除了README.md）
 *.md
 !README.md
@@ -367,24 +301,6 @@ load_test_*.py
 config.*.yml
 !global_config.yml
 
-# 运行时生成的文件
-*.pid
-*.lock
-*.sock
-*.port
-
-# 性能和调试文件
-*.profile
-*.pstats
-*.trace
-
-# 编译和构建产物
-*.whl
-*.egg
-*.tar.gz
-build/
-dist/
-
 # 开发工具配置
 .editorconfig
 .flake8
@@ -392,29 +308,6 @@ dist/
 pyproject.toml
 setup.cfg
 tox.ini
-
-# 容器相关
-docker-compose.*.yml
-!docker-compose.yml
-!docker-compose-cn.yml
-
-# 安全相关
-*.secret
-*.token
-*.auth
-secrets/
-credentials/
-
-# 监控和日志
-*.access.log
-*.error.log
-*.audit.log
-monitoring/
-
-# 第三方服务配置
-.env
-.env.*
-!.env.example
 
 # 数据导出文件
 export_*.csv
@@ -430,6 +323,7 @@ temp_downloads/
 .playwright/
 playwright-report/
 test-results/
+playwright/.browsers/
 
 # 系统服务文件
 *.service
@@ -441,18 +335,32 @@ archive/
 old/
 deprecated/
 
-# ==================== 项目特定新增 ====================
+# 项目特定新增规则
+# 轨迹历史文件
+trajectory_history/*.json
+!trajectory_history/.gitkeep
+
+# 统计服务器相关（保留核心文件，只忽略数据文件）
+user_stats.txt
+stats.log
+
+# 加密相关文件（保留项目核心文件，只忽略临时解密文件）
+# *_decrypted.py  # 注释掉，因为项目中有重要的解密文件
+# *_ultra.py      # 注释掉，因为项目中有重要的ultra文件
+
+# 临时脚本文件
+temp_*.py
+quick_*.py
+fix_*.py
+
+# ==================== 项目特定数据库和日志 ====================
 # 数据库文件
 xianyu_data.db
 xianyu_data_backup_*.db
+user_stats.db
 
 # 实时日志文件
 realtime.log
-
-# 用户统计文件
-user_stats.db
-user_stats.txt
-stats.log
 
 # PHP测试文件
 php/
@@ -460,161 +368,257 @@ php/
 # 检查脚本
 check_disk_usage.py
 
-# Docker相关
-docker-compose.override.yml
-.env.docker
-
-# IDE和编辑器
-.vscode/settings.json
-.idea/workspace.xml
-*.sublime-project
-*.sublime-workspace
-
-# 操作系统特定
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-$RECYCLE.BIN/
-
-# 网络和缓存
-.wget-hsts
-.curl_sslcache
-
-# 临时和锁文件
-*.lock
-*.pid
-*.sock
-*.port
-.fuse_hidden*
-
-# 压缩和打包文件
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# 媒体文件（如果不需要版本控制）
-*.mp4
-*.avi
-*.mov
-*.wmv
-*.flv
-*.webm
-*.mp3
-*.wav
-*.flac
-*.aac
-
-# 大文件和二进制文件
-*.bin
-*.exe
-*.dll
-*.so
-*.dylib
-
-# 文档生成
-docs/_build/
-docs/build/
-site/
-_site/
-
-# 包管理器锁文件
-package-lock.json
-yarn.lock
-Pipfile.lock
-poetry.lock
-
-# 环境和配置文件
+# 环境配置文件
 .env
 .env.*
 !.env.example
-config.local.*
-settings.local.*
+.env.docker
+
+# === 允许跟踪二进制扩展模块（用于分发）===
+!utils/xianyu_slider_stealth*.pyd
+!utils/xianyu_slider_stealth*.so
+
+# ==================== 新增项目特定规则 ====================
+
+# 用户数据和隐私文件
+user_data/
+personal_configs/
+*.personal.yml
+*.private.yml
 
 # 运行时生成的文件
-*.generated.*
-*.auto.*
-auto_*
+*.runtime
+*.session
+session_*
+runtime_*
 
-# 性能分析和调试
-*.prof
-*.pstats
+# 第三方服务配置
+*.service.yml
+*.webhook.yml
+external_configs/
+
+# 性能分析和调试文件
+*.perf
 *.trace
-*.debug
-profile_*
-debug_*
+memory_*.dump
+cpu_*.profile
 
-# 安全相关
+# 机器学习模型文件（如果有AI功能扩展）
+models/
+*.model
+*.weights
+*.checkpoint
+
+# 容器相关文件
+.docker/
+docker-data/
+container_logs/
+
+# 监控和统计文件
+metrics/
+analytics/
+*.metrics
+*.analytics
+
+# 自动生成的文档
+auto_docs/
+generated_docs/
+
+# 临时API文件
+api_temp/
+temp_api/
+
+# 插件和扩展
+plugins/
+extensions/
+addons/
+
+# 测试覆盖率报告
+coverage_html/
+.coverage.*
+coverage.xml
+
+# IDE和编辑器特定文件
+.vscode/settings.json
+.vscode/launch.json
+.idea/workspace.xml
+.idea/tasks.xml
+
+# 系统特定文件
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# 网络和代理配置
+proxy_configs/
+*.proxy
+network_configs/
+
+# ==================== 项目清理后新增规则 ====================
+
+# 临时文档和说明文件
+*功能说明.md
+*修改说明.md
+*分析报告.md
+*使用说明.md
+
+# 轨迹历史文件
+trajectory_history/
+*.trajectory
+
+# 实时日志文件
+realtime.log
+*.realtime
+
+# Nuitka编译报告
+nuitka-crash-report.xml
+*.crash-report.xml
+
+# 项目压缩包
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 临时数据库文件
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ==================== 2025年新增规则 ====================
+
+# 编译相关临时文件
+*.build/
+*.dist/
+*.onefile-build/
+nuitka-crash-report*.xml
+nuitka-onefile-warning.txt
+
+# Nuitka 编译产物（保留在utils目录下的二进制模块）
+utils/*.build/
+utils/*.dist/
+!utils/xianyu_slider_stealth*.pyd
+!utils/xianyu_slider_stealth*.so
+
+# Python类型提示文件（Nuitka生成的）
+*.pyi
+!utils/xianyu_slider_stealth.pyi
+
+# DrissionPage浏览器缓存
+DrissionPage/
+.drission/
+
+# 其他浏览器数据
+selenium/
+webdriver/
+*.crdownload
+
+# 项目运行时生成的统计文件
+user_stats.txt
+user_stats.db
+stats.log
+stats_*.log
+
+# 临时Python脚本（不要提交临时脚本）
+temp_*.py
+tmp_*.py
+quick_*.py
+fix_*.py
+test_*.py
+check_*.py
+debug_*.py
+
+# 数据导出文件（避免提交用户数据）
+export_*.xlsx
+export_*.csv
+export_*.json
+dump_*.sql
+backup_*.db
+
+# 日志文件（更全面）
+*.log
+*.log.*
+logs/
+*.realtime
+realtime.log
+
+# 配置文件备份
+*.yml.bak
+*.yaml.bak
+*.json.bak
+*.conf.bak
+
+# 系统监控和性能分析
+*.perf
+*.trace
+*.profile
+memory_*.dump
+cpu_*.profile
+performance_*.txt
+
+# 容器相关（补充）
+.docker/
+docker-data/
+container_logs/
+docker-compose.override.yml
+
+# 数据目录（补充确保不提交用户数据）
+data/
+backups/
+trajectory_history/
+*.trajectory
+
+# 临时下载和缓存
+downloads/
+temp_downloads/
+.cache/
+cache/
+__cache__/
+
+# 开发环境配置（保护开发者隐私）
+.env
+.env.*
+!.env.example
+*.local.yml
+*.dev.yml
+*.test.yml
+*.personal.yml
+*.private.yml
+config.local.*
+config.dev.*
+
+# 加密密钥文件（确保安全）
 *.key
 *.pem
 *.crt
 *.cert
 *.p12
 *.pfx
-*.secret
-*.token
-*.auth
 secrets/
 credentials/
 keys/
 
-# 监控和统计
-monitoring/
-metrics/
-stats/
-
-# 第三方工具
-.sonarqube/
-.scannerwork/
-.nyc_output/
-coverage/
-.coverage.*
-
-# 移动端开发
-*.apk
-*.ipa
-*.app
-*.aab
-
-# 游戏开发
-*.unity
-*.unitypackage
-
-# 科学计算
-*.mat
+# AI模型和大文件
+*.model
+*.weights
 *.h5
-*.hdf5
+*.pb
+*.onnx
+*.tflite
+models/
+checkpoints/
 
-# 地理信息系统
-*.shp
-*.dbf
-*.shx
-*.prj
+# 媒体文件（避免提交大文件）
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.mp3
+*.wav
+*.ogg
 
-# 3D模型
-*.obj
-*.fbx
-*.dae
-*.3ds
-
-# 字体文件（如果不需要版本控制）
-*.ttf
-*.otf
-*.woff
-*.woff2
-*.eot
-
-# 数据文件（根据需要调整）
-*.csv.bak
-*.json.bak
-*.xml.bak
-*.sql.bak
+# 项目特定排除（明确列出不需要跟踪的文件）
+check_silent_mode.py
+order_status_handler.py

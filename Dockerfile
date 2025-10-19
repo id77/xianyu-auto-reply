@@ -20,6 +20,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV TZ=Asia/Shanghai
 ENV DOCKER_ENV=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Nuitka编译优化
+ENV CC=gcc
+ENV CXX=g++
+ENV NUITKA_CACHE_DIR=/tmp/nuitka-cache
 
 # 安装系统依赖（包括Playwright浏览器依赖）
 RUN apt-get update && \
@@ -30,6 +34,12 @@ RUN apt-get update && \
         tzdata \
         curl \
         ca-certificates \
+        # 编译工具（Nuitka需要）
+        build-essential \
+        gcc \
+        g++ \
+        ccache \
+        patchelf \
         # 图像处理依赖
         libjpeg-dev \
         libpng-dev \
@@ -63,6 +73,10 @@ RUN apt-get update && \
         libx11-xcb1 \
         libxfixes3 \
         xdg-utils \
+        chromium \
+        # OpenCV运行时依赖
+        libgl1 \
+        libglib2.0-0 \
         && apt-get clean \
         && rm -rf /var/lib/apt/lists/* \
         && rm -rf /tmp/* \
@@ -83,6 +97,34 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 复制项目文件
 COPY . .
 
+# 条件执行：如果 xianyu_slider_stealth.py 存在，则编译为二进制模块
+RUN if [ -f "utils/xianyu_slider_stealth.py" ]; then \
+        echo "===================================="; \
+        echo "检测到 xianyu_slider_stealth.py"; \
+        echo "开始编译为二进制模块..."; \
+        echo "===================================="; \
+        pip install --no-cache-dir nuitka ordered-set zstandard && \
+        python build_binary_module.py; \
+        BUILD_RESULT=$?; \
+        if [ $BUILD_RESULT -eq 0 ]; then \
+            echo "===================================="; \
+            echo "✓ 二进制模块编译成功"; \
+            echo "===================================="; \
+            ls -lh utils/xianyu_slider_stealth.* 2>/dev/null || true; \
+        else \
+            echo "===================================="; \
+            echo "✗ 二进制模块编译失败 (错误码: $BUILD_RESULT)"; \
+            echo "将继续使用 Python 源代码版本"; \
+            echo "===================================="; \
+        fi; \
+        rm -rf /tmp/nuitka-cache utils/xianyu_slider_stealth.build utils/xianyu_slider_stealth.dist; \
+    else \
+        echo "===================================="; \
+        echo "未检测到 xianyu_slider_stealth.py"; \
+        echo "跳过二进制编译"; \
+        echo "===================================="; \
+    fi
+
 # 安装Playwright浏览器（必须在复制项目文件之后）
 RUN playwright install chromium && \
     playwright install-deps chromium
@@ -90,6 +132,9 @@ RUN playwright install chromium && \
 # 创建必要的目录并设置权限
 RUN mkdir -p /app/logs /app/data /app/backups /app/static/uploads/images && \
     chmod 777 /app/logs /app/data /app/backups /app/static/uploads /app/static/uploads/images
+
+# 配置系统限制，防止core文件生成
+RUN echo "ulimit -c 0" >> /etc/profile
 
 # 注意: 为了简化权限问题，使用root用户运行
 # 在生产环境中，建议配置适当的用户映射
@@ -101,10 +146,9 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# 复制启动脚本并设置权限
+# 复制启动脚本
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh && \
-    dos2unix /app/entrypoint.sh 2>/dev/null || true
+RUN chmod +x /app/entrypoint.sh
 
-# 启动命令（使用ENTRYPOINT确保脚本被执行）
-ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
+# 启动命令
+CMD ["/app/entrypoint.sh"]
