@@ -3262,7 +3262,7 @@ class XianyuLive:
                 "order_id": order_id,
                 "error_type": error_type,
                 "error_type_desc": error_type_desc,
-                "error_message": error_message,
+                "error": f"{error_message}\n为确保发货安全，已停止自动发货处理。",
                 "time": time.strftime('%Y-%m-%d %H:%M:%S'),
                 "safety_action": "stopped_auto_delivery"
             }
@@ -3358,13 +3358,11 @@ class XianyuLive:
                 cookie_string = self.cookies_str
                 logger.debug(f"【{self.cookie_id}】使用Cookie长度: {len(cookie_string) if cookie_string else 0}")
 
-                # 确定是否使用有头模式（调试用）
-                headless_mode = True if debug_headless is None else debug_headless
-                if not headless_mode:
-                    logger.info(f"【{self.cookie_id}】🖥️ 启用有头模式进行调试")
+                # API版本不需要headless参数，直接调用
+                logger.info(f"【{self.cookie_id}】使用API方式获取订单详情")
 
-                # 异步获取订单详情（使用当前账号的cookie）
-                result = await fetch_order_detail_api_sync(order_id, cookie_string, headless=headless_mode)
+                # 获取订单详情（使用当前账号的cookie）
+                result = fetch_order_detail_api_sync(order_id, cookie_string)
 
                 if result:
                     logger.info(f"【{self.cookie_id}】订单详情获取成功: {order_id}")
