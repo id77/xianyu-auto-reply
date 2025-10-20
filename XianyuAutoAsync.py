@@ -4087,7 +4087,7 @@ class XianyuLive:
         text = {
             "contentType": 1,
             "text": {
-                "text": text + "\n\n\n购买后如果没有发货，可尝试点击提醒发货按钮"
+                "text": text
             }
         }
         text_base64 = str(base64.b64encode(json.dumps(text).encode('utf-8')), 'utf-8')
