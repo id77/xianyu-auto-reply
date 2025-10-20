@@ -4507,7 +4507,8 @@ class DBManager:
                 cursor = self.conn.cursor()
                 cursor.execute('''
                 SELECT order_id, item_id, buyer_id, spec_name, spec_value,
-                       quantity, amount, order_status, created_at, updated_at
+                       quantity, amount, order_status, created_at, updated_at,
+                       buyer_nickName, buyer_name, buyer_phone, buyer_address
                 FROM orders WHERE cookie_id = ?
                 ORDER BY created_at DESC LIMIT ?
                 ''', (cookie_id, limit))
@@ -4524,7 +4525,11 @@ class DBManager:
                         'amount': row[6],
                         'order_status': row[7],
                         'created_at': row[8],
-                        'updated_at': row[9]
+                        'updated_at': row[9],
+                        'buyer_nickName': row[10],
+                        'buyer_name': row[11],
+                        'buyer_phone': row[12],
+                        'buyer_address': row[13]
                     })
 
                 return orders
