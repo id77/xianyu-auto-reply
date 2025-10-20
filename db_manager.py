@@ -4411,10 +4411,10 @@ class DBManager:
                     if buyer_name is not None and buyer_name != "":
                         update_fields.append("buyer_name = ?")
                         update_values.append(buyer_name)
-                    if buyer_phone is not None and buyer_name != "":
+                    if buyer_phone is not None and buyer_phone != "":
                         update_fields.append("buyer_phone = ?")
                         update_values.append(buyer_phone)
-                    if buyer_address is not None and buyer_name != "":
+                    if buyer_address is not None and buyer_address != "":
                         update_fields.append("buyer_address = ?")
                         update_values.append(buyer_address)
                     if spec_name is not None:

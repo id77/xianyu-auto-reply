@@ -329,28 +329,20 @@ class OrderDetailAPIFetcher:
 
 
 # 便捷函数
-async def fetch_order_detail_api(order_id: str, cookie_string: str = None) -> Optional[Dict[str, Any]]:
+async def fetch_order_detail_api(order_id: str, cookie_string: str = None, use_cache: bool = True) -> Optional[Dict[str, Any]]:
     """
     使用API方式获取订单详情的便捷函数
     
     Args:
         order_id: 订单ID
         cookie_string: Cookie字符串
+        use_cache: 是否使用数据库缓存，默认True。设为False时强制从API获取
         
     Returns:
         订单详情字典，失败时返回None
     """
-    fetcher = OrderDetailAPIFetcher(cookie_string)
-    return await fetcher.fetch_order_detail(order_id)
-
-
-# 同步版本的便捷函数
-def fetch_order_detail_api_sync(order_id: str, cookie_string: str = None) -> Optional[Dict[str, Any]]:
-    """
-    使用API方式获取订单详情的同步便捷函数
-    """
-    try:
-        # 检查数据库缓存
+    # 检查数据库缓存（仅在use_cache为True时）
+    if use_cache:
         try:
             from db_manager import db_manager
             existing_order = db_manager.get_order_by_id(order_id)
@@ -395,6 +387,76 @@ def fetch_order_detail_api_sync(order_id: str, cookie_string: str = None) -> Opt
                     return result
         except Exception as e:
             logger.warning(f"检查数据库缓存失败: {e}")
+    else:
+        logger.info(f"跳过缓存检查，直接从API获取订单详情: {order_id}")
+    
+    # 创建fetcher并获取数据
+    fetcher = OrderDetailAPIFetcher(cookie_string)
+    return await fetcher.fetch_order_detail(order_id)
+
+
+# 同步版本的便捷函数
+def fetch_order_detail_api_sync(order_id: str, cookie_string: str = None, use_cache: bool = True) -> Optional[Dict[str, Any]]:
+    """
+    使用API方式获取订单详情的同步便捷函数
+    
+    Args:
+        order_id: 订单ID
+        cookie_string: Cookie字符串
+        use_cache: 是否使用数据库缓存，默认True。设为False时强制从API获取
+    
+    Returns:
+        订单详情字典，失败时返回None
+    """
+    try:
+        # 检查数据库缓存（仅在use_cache为True时）
+        if use_cache:
+            try:
+                from db_manager import db_manager
+                existing_order = db_manager.get_order_by_id(order_id)
+                
+                if existing_order:
+                    # 检查金额字段是否有效
+                    amount = existing_order.get('amount', '')
+                    amount_valid = False
+                    
+                    if amount:
+                        amount_clean = str(amount).replace('¥', '').replace('￥', '').replace('$', '').strip()
+                        try:
+                            amount_value = float(amount_clean)
+                            amount_valid = amount_value > 0
+                        except (ValueError, TypeError):
+                            amount_valid = False
+                    
+                    if amount_valid:
+                        logger.info(f"📋 订单 {order_id} 已存在于数据库中且金额有效({amount})，直接返回缓存数据")
+                        
+                        result = {
+                            'order_id': existing_order['order_id'],
+                            'url': f"https://www.goofish.com/order-detail?orderId={order_id}&role=seller",
+                            'title': f"订单详情 - {order_id}",
+                            'sku_info': {
+                                'spec_name': existing_order.get('spec_name', ''),
+                                'spec_value': existing_order.get('spec_value', ''),
+                                'quantity': existing_order.get('quantity', ''),
+                                'amount': existing_order.get('amount', '')
+                            },
+                            'spec_name': existing_order.get('spec_name', ''),
+                            'spec_value': existing_order.get('spec_value', ''),
+                            'quantity': existing_order.get('quantity', ''),
+                            'amount': existing_order.get('amount', ''),
+                            'buyer_nickName': existing_order.get('buyer_nickName', ''),
+                            'buyer_name': existing_order.get('buyer_name', ''),
+                            'buyer_phone': existing_order.get('buyer_phone', ''),
+                            'buyer_address': existing_order.get('buyer_address', ''),
+                            'timestamp': time.time(),
+                            'from_cache': True
+                        }
+                        return result
+            except Exception as e:
+                logger.warning(f"检查数据库缓存失败: {e}")
+        else:
+            logger.info(f"跳过缓存检查，直接从API获取订单详情: {order_id}")
         
         # 创建fetcher并获取数据
         fetcher = OrderDetailAPIFetcher(cookie_string)

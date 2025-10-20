@@ -667,6 +667,29 @@ class XianyuLive:
                     # 设置默认标题（将通过API获取真实商品信息）
                     item_title = "待获取商品信息"
 
+                    # 强制获取最新订单详情，确保信息准确性
+                    if order_id:
+                        try:
+                            logger.info(f"【{self.cookie_id}】强制获取最新订单详情: {order_id}")
+                            
+                            # 使用fetch_order_detail_info方法，设置use_cache=False强制获取最新数据
+                            order_detail_fresh = await self.fetch_order_detail_info(order_id, use_cache=False)
+                            
+                            if order_detail_fresh:
+                                # 从订单详情中提取商品标题
+                                if order_detail_fresh.get('spec_name'):
+                                    item_title = order_detail_fresh['spec_name']
+                                    logger.info(f"【{self.cookie_id}】从订单详情获取到商品标题: {item_title}")
+                                else:
+                                    logger.warning(f"【{self.cookie_id}】订单详情中无商品标题，使用默认标题")
+                                
+                                # 记录其他有用信息
+                                logger.debug(f"【{self.cookie_id}】订单详情 - 数量: {order_detail_fresh.get('quantity', '未知')}, 金额: {order_detail_fresh.get('amount', '未知')}")
+                            else:
+                                logger.warning(f"【{self.cookie_id}】强制获取订单详情失败，使用默认标题")
+                        except Exception as api_e:
+                            logger.error(f"【{self.cookie_id}】强制API获取订单详情异常: {self._safe_str(api_e)}，使用默认标题")
+
                     logger.info(f"【{self.cookie_id}】准备自动发货: item_id={item_id}, item_title={item_title}")
 
                     # 检查是否需要多数量发货
@@ -3336,8 +3359,16 @@ class XianyuLive:
             logger.error(f"【{self.cookie_id}】免拼发货模块调用失败: {self._safe_str(e)}")
             return {"error": f"免拼发货模块调用失败: {self._safe_str(e)}", "order_id": order_id}
 
-    async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None):
-        """获取订单详情信息（使用独立的锁机制，不受延迟锁影响）"""
+    async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None, use_cache: bool = True):
+        """获取订单详情信息（使用独立的锁机制，不受延迟锁影响）
+        
+        Args:
+            order_id: 订单ID
+            item_id: 商品ID（可选）
+            buyer_id: 买家ID（可选）
+            debug_headless: 无头模式调试（已废弃）
+            use_cache: 是否使用缓存，False时强制重新获取（默认True）
+        """
         # 使用独立的订单详情锁，不与自动发货锁冲突
         order_detail_lock = self._order_detail_locks[order_id]
 
@@ -3361,8 +3392,8 @@ class XianyuLive:
                 # API版本不需要headless参数，直接调用
                 logger.info(f"【{self.cookie_id}】使用API方式获取订单详情")
 
-                # 获取订单详情（使用当前账号的cookie）
-                result = fetch_order_detail_api_sync(order_id, cookie_string)
+                # 获取订单详情（使用当前账号的cookie，传递缓存控制参数）
+                result = fetch_order_detail_api_sync(order_id, cookie_string, use_cache=use_cache)
 
                 if result:
                     logger.info(f"【{self.cookie_id}】订单详情获取成功: {order_id}")
@@ -3382,6 +3413,10 @@ class XianyuLive:
                         logger.info(f"【{self.cookie_id}】📋 规格名称: {spec_name}")
                         logger.info(f"【{self.cookie_id}】📝 规格值: {spec_value}")
                         print(f"🛍️ 【{self.cookie_id}】订单 {order_id} 规格信息: {spec_name} -> {spec_value}")
+                        logger.info(f"【{self.cookie_id}】📝 买家昵称: {buyer_nickName}")
+                        logger.info(f"【{self.cookie_id}】📝 买家姓名: {buyer_name}")
+                        logger.info(f"【{self.cookie_id}】📝 买家电话: {buyer_phone}")
+                        logger.info(f"【{self.cookie_id}】📝 买家地址: {buyer_address}")
                     else:
                         logger.warning(f"【{self.cookie_id}】未获取到有效的规格信息")
                         print(f"⚠️ 【{self.cookie_id}】订单 {order_id} 规格信息获取失败")
