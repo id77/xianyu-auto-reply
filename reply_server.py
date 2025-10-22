@@ -4654,6 +4654,34 @@ def delete_table_record(table_name: str, record_id: str, admin_user: Dict[str, A
         log_with_user('error', f"删除表记录异常: {table_name}.{record_id} - {str(e)}", admin_user)
         raise HTTPException(status_code=500, detail=str(e))
 
+# 专门的订单删除API端点（为了兼容前端的特殊路径）
+@app.post('/admin/data/orders/delete')
+def delete_order_record(request: dict, admin_user: Dict[str, Any] = Depends(require_admin)):
+    """删除指定订单记录（管理员专用）"""
+    from db_manager import db_manager
+    try:
+        record_id = request.get('record_id')
+        if not record_id:
+            raise HTTPException(status_code=400, detail="缺少record_id参数")
+        
+        log_with_user('info', f"删除订单记录: {record_id}", admin_user)
+
+        # 删除订单记录
+        success = db_manager.delete_table_record('orders', record_id)
+
+        if success:
+            log_with_user('info', f"订单记录删除成功: {record_id}", admin_user)
+            return {"success": True, "message": "删除成功"}
+        else:
+            log_with_user('warning', f"订单记录删除失败: {record_id}", admin_user)
+            raise HTTPException(status_code=400, detail="删除失败，记录可能不存在")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_with_user('error', f"删除订单记录异常: {record_id} - {str(e)}", admin_user)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete('/admin/data/{table_name}')
 def clear_table_data(table_name: str, admin_user: Dict[str, Any] = Depends(require_admin)):
     """清空指定表的所有数据（管理员专用）"""

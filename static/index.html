@@ -666,7 +666,7 @@
           <div class="card-header d-flex justify-content-between align-items-center">
             <div class="d-flex align-items-center gap-3">
               <input type="text" class="form-control" id="orderSearchInput"
-                     placeholder="搜索订单ID或商品ID..." style="width: 300px;">
+                     placeholder="搜索订单ID、商品ID、买家ID或买家昵称..." style="width: 300px;">
               <h5 class="mb-0">订单列表</h5>
             </div>
             <button class="btn btn-sm btn-outline-danger" onclick="batchDeleteOrders()" id="batchDeleteOrdersBtn" disabled>
@@ -683,23 +683,24 @@
               <table class="table table-hover">
                 <thead>
                   <tr>
-                    <th style="width: 5%">
+                    <th style="width: 4%">
                       <input type="checkbox" id="selectAllOrders" onchange="toggleSelectAllOrders(this)">
                     </th>
-                    <th style="width: 15%">订单ID</th>
-                    <th style="width: 12%">商品ID</th>
-                    <th style="width: 10%">买家ID</th>
-                    <th style="width: 12%">规格信息</th>
-                    <th style="width: 8%">数量</th>
-                    <th style="width: 10%">金额</th>
-                    <th style="width: 8%">状态</th>
-                    <th style="width: 10%">账号ID</th>
-                    <th style="width: 10%">操作</th>
+                    <th style="width: 13%">订单ID</th>
+                    <th style="width: 10%">商品ID</th>
+                    <th style="width: 8%">买家ID</th>
+                    <th style="width: 10%">买家昵称</th>
+                    <th style="width: 10%">规格信息</th>
+                    <th style="width: 6%">数量</th>
+                    <th style="width: 8%">金额</th>
+                    <th style="width: 7%">状态</th>
+                    <th style="width: 8%">账号ID</th>
+                    <th style="width: 8%">操作</th>
                   </tr>
                 </thead>
                 <tbody id="ordersTableBody">
                   <tr>
-                    <td colspan="10" class="text-center text-muted">加载中...</td>
+                    <td colspan="11" class="text-center text-muted">加载中...</td>
                   </tr>
                 </tbody>
               </table>
