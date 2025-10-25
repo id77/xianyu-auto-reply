@@ -356,8 +356,8 @@ env/
 ENV/
 .venv/
 
-# 项目特定排除文件
-check_silent_mode.py
-order_status_handler.py
+# 项目特定排除文件（已清理的测试文件和调试工具）
+# check_silent_mode.py - 已删除
+# order_status_handler.py - 保留，是核心订单处理模块
 php/
-simple_stats_server.py
+# simple_stats_server.py - 保留，是可选的统计服务器

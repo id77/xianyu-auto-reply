@@ -20,6 +20,7 @@ class AIReplyEngine:
     def __init__(self):
         self.clients = {}  # 存储不同账号的OpenAI客户端
         self.agents = {}   # 存储不同账号的Agent实例
+        self.client_last_used = {}  # 记录客户端最后使用时间 {cookie_id: timestamp}
         self._init_default_prompts()
     
     def _init_default_prompts(self):
@@ -71,6 +72,8 @@ class AIReplyEngine:
                 logger.error(f"创建OpenAI客户端失败 {cookie_id}: {e}")
                 return None
         
+        # 记录使用时间
+        self.client_last_used[cookie_id] = time.time()
         return self.clients[cookie_id]
 
     def _is_dashscope_api(self, settings: dict) -> bool:
@@ -374,10 +377,42 @@ class AIReplyEngine:
         """清理客户端缓存"""
         if cookie_id:
             self.clients.pop(cookie_id, None)
+            self.client_last_used.pop(cookie_id, None)
             logger.info(f"清理账号 {cookie_id} 的客户端缓存")
         else:
             self.clients.clear()
+            self.client_last_used.clear()
             logger.info("清理所有客户端缓存")
+    
+    def cleanup_unused_clients(self, max_idle_hours: int = 24):
+        """清理长时间未使用的客户端（防止内存泄漏）
+        
+        Args:
+            max_idle_hours: 最大空闲时间（小时），默认24小时
+        """
+        try:
+            current_time = time.time()
+            max_idle_seconds = max_idle_hours * 3600
+            
+            # 找出超过最大空闲时间的客户端
+            expired_clients = [
+                cookie_id for cookie_id, last_used in self.client_last_used.items()
+                if current_time - last_used > max_idle_seconds
+            ]
+            
+            # 清理过期客户端
+            for cookie_id in expired_clients:
+                self.clients.pop(cookie_id, None)
+                self.client_last_used.pop(cookie_id, None)
+                self.agents.pop(cookie_id, None)
+            
+            if expired_clients:
+                logger.info(f"AI回复引擎：清理了 {len(expired_clients)} 个长时间未使用的客户端")
+                logger.debug(f"清理的账号: {expired_clients}")
+                logger.debug(f"当前活跃客户端数量: {len(self.clients)}")
+            
+        except Exception as e:
+            logger.error(f"AI回复引擎：清理未使用客户端时出错: {e}")
 
 
 # 全局AI回复引擎实例

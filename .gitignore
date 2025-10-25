@@ -620,6 +620,5 @@ checkpoints/
 *.ogg
 
 # 项目特定排除（明确列出不需要跟踪的文件）
-check_silent_mode.py
-order_status_handler.py
-*.har
+# check_silent_mode.py - 已删除
+# order_status_handler.py - 是核心模块，需要跟踪

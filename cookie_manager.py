@@ -100,6 +100,15 @@ class CookieManager:
         task = self.tasks.pop(cookie_id, None)
         if task:
             task.cancel()
+            try:
+                # 等待任务完全清理，确保资源释放
+                await task
+            except asyncio.CancelledError:
+                # 任务被取消是预期行为
+                pass
+            except Exception as e:
+                logger.error(f"等待任务清理时出错: {cookie_id}, {e}")
+        
         self.cookies.pop(cookie_id, None)
         self.keywords.pop(cookie_id, None)
         # 从数据库删除
@@ -166,6 +175,14 @@ class CookieManager:
             task = self.tasks.pop(cookie_id, None)
             if task:
                 task.cancel()
+                try:
+                    # 等待任务完全清理，确保资源释放
+                    await task
+                except asyncio.CancelledError:
+                    # 任务被取消是预期行为
+                    pass
+                except Exception as e:
+                    logger.error(f"等待任务清理时出错: {cookie_id}, {e}")
 
             # 更新Cookie值
             self.cookies[cookie_id] = new_value
@@ -277,13 +294,38 @@ class CookieManager:
             logger.warning(f"Cookie任务不存在，跳过停止: {cookie_id}")
             return
 
+        async def _stop_task_async():
+            """异步停止任务并等待清理"""
+            try:
+                task = self.tasks[cookie_id]
+                if not task.done():
+                    task.cancel()
+                    try:
+                        # 等待任务完全清理，确保资源释放
+                        await task
+                    except asyncio.CancelledError:
+                        # 任务被取消是预期行为
+                        pass
+                    except Exception as e:
+                        logger.error(f"等待任务清理时出错: {cookie_id}, {e}")
+                    logger.info(f"已取消Cookie任务: {cookie_id}")
+                del self.tasks[cookie_id]
+                logger.info(f"成功停止Cookie任务: {cookie_id}")
+            except Exception as e:
+                logger.error(f"停止Cookie任务失败: {cookie_id}, {e}")
+
         try:
-            task = self.tasks[cookie_id]
-            if not task.done():
-                task.cancel()
-                logger.info(f"已取消Cookie任务: {cookie_id}")
-            del self.tasks[cookie_id]
-            logger.info(f"成功停止Cookie任务: {cookie_id}")
+            # 在事件循环中执行异步停止
+            if hasattr(self.loop, 'is_running') and self.loop.is_running():
+                fut = asyncio.run_coroutine_threadsafe(_stop_task_async(), self.loop)
+                fut.result(timeout=10)  # 等待最多10秒
+            else:
+                logger.warning(f"事件循环未运行，无法正常等待任务清理: {cookie_id}")
+                # 直接取消任务（非最佳方案）
+                task = self.tasks[cookie_id]
+                if not task.done():
+                    task.cancel()
+                del self.tasks[cookie_id]
         except Exception as e:
             logger.error(f"停止Cookie任务失败: {cookie_id}, {e}")
 
