@@ -2811,7 +2811,6 @@ class XianyuLive:
         except:
             return 0.0
 
-    async def send_notification(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None, chat_id: str = None, scheme: str = None):
     async def send_notification(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None, chat_id: str = None, scheme: str = None, other: dict = None):
         """发送消息通知"""
         try:
