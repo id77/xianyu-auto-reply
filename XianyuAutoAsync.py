@@ -2812,6 +2812,7 @@ class XianyuLive:
             return 0.0
 
     async def send_notification(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None, chat_id: str = None, scheme: str = None):
+    async def send_notification(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None, chat_id: str = None, scheme: str = None, other: dict = None):
         """发送消息通知"""
         try:
             from db_manager import db_manager
@@ -2860,6 +2861,22 @@ class XianyuLive:
                 "time": time.strftime('%Y-%m-%d %H:%M:%S'),
                 "scheme": scheme or "fleamarket://"
             }
+
+            # 如果有other参数，尝试提取图片URL和金额信息
+            first_image_url = None
+            transfer_amount = None
+            if other and isinstance(other, dict):
+                # 提取图片URL
+                first_image_url = other.get('first_image_url')
+
+                # 提取金额信息
+                transfer_amount = other.get('transfer_amount')
+
+            if first_image_url:
+                notification_msg_json["image"] = first_image_url
+
+            if transfer_amount:
+                notification_msg_json["money"] = transfer_amount
 
             # 发送通知到各个渠道
             await self.send_notifications(notifications, notification_msg, notification_msg_json)
@@ -3265,6 +3282,8 @@ class XianyuLive:
             error = message_json.get('error', '')
             time = message_json.get('time', '')
             scheme = message_json.get('scheme', '')
+            image = message_json.get('image', '')
+            money = message_json.get('money', '')
 
             # 检查是否是空消息或系统消息
             if ((error == '' and message == '') or
@@ -3276,7 +3295,7 @@ class XianyuLive:
             
             # 构造 bark API 所需的格式
             data = {
-                'body': f"💬{buyer_name or '程序消息'}：{message or result or error}\n📆时间：{time}",
+                'body': f"💬{buyer_name or '程序消息'}：{message or result or error} {money}\n📆时间：{time}",
                 'title': f"闲鱼推送 账号：{account}",
                 'badge': 1,
                 'sound': 'shake',
@@ -3284,6 +3303,9 @@ class XianyuLive:
                 'icon': 'https://img.alicdn.com/tfs/TB19WObTNv1gK0jSZFFXXb0sXXa-144-144.png',
                 'url': scheme,
             }
+
+            if image:
+                data['image'] = image
 
             if error and re.search(r'Token刷新失败', error):
                 data['level'] = 'critical'
@@ -5913,6 +5935,43 @@ class XianyuLive:
                 send_user_id = message_10.get("senderUserId", "unknown")
                 send_message = message_10.get("reminderContent", "")
                 scheme = message_10.get("reminderUrl", "")
+                
+                other = {}
+                message_6 = message_1["6"]
+                message_6_3 = message_6.get("3", {})
+                message_6_3_5 = message_6_3.get("5", '')
+
+                # 尝试转成JSON
+                card_content = json.loads(message_6_3_5)
+
+                if card_content:
+                    # 提取转账信息
+                    content_type = card_content.get("contentType")
+                    if content_type == 17 and "transfer" in card_content:
+                        transfer = card_content["transfer"]
+                        if "title" in transfer:
+                            other['transfer_title'] = transfer["title"]
+                        if "content" in transfer:  # 转账金额字段是 content
+                            other['transfer_amount'] = transfer["content"]
+                        if "mediaUrl" in transfer:
+                            other['transfer_media_url'] = transfer["mediaUrl"]
+                    
+                    # 提取图片信息（图片在 image.pics[0] 中）
+                    if "image" in card_content and "pics" in card_content["image"]:
+                        pics = card_content["image"]["pics"]
+                        if pics and len(pics) > 0:
+                            first_pic = pics[0]
+                            if "url" in first_pic:
+                                other['image_url'] = first_pic["url"]
+                                other['first_image_url'] = first_pic["url"]  # 兼容旧字段
+                                logger.info(f"提取到的图片URL: {first_pic['url']}")
+                            if "width" in first_pic:
+                                other['image_width'] = first_pic["width"]
+                            if "height" in first_pic:
+                                other['image_height'] = first_pic["height"]
+                    
+                    # 保存完整的卡片内容，方便读取任何字段（图片、金额等）
+                    other['card_content'] = card_content
 
                 chat_id_raw = message_1.get("2", "")
                 chat_id = chat_id_raw.split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
@@ -5939,7 +5998,7 @@ class XianyuLive:
 
                 # 🔔 立即发送消息通知（独立于自动回复功能）
                 try:
-                    await self.send_notification(send_user_name, send_user_id, send_message, item_id, chat_id, scheme)
+                    await self.send_notification(send_user_name, send_user_id, send_message, item_id, chat_id, scheme, other)
                 except Exception as notify_error:
                     logger.error(f"📱 发送消息通知失败: {self._safe_str(notify_error)}")
 
